@@ -10,13 +10,20 @@ import FirebaseAuth
 
 struct ProfileView: View {
     @Binding var showAuthSheet: Bool
-    
+    @StateObject private var userVM = CurrentUserViewModel()
+
     var body: some View {
         ZStack {
-            Color(hex: "#EAEAEA")
-                .ignoresSafeArea()
+            Color(hex: "#EAEAEA").ignoresSafeArea()
             
             VStack {
+                Base64ImageView(
+                    base64: userVM.pfpBase64 ?? UserDefaults.standard.string(forKey: "pfpBase64"),
+                    size: 120,
+                    cornerRadius: 60
+                )
+                .padding()
+
                 Button {
                     do {
                         try Auth.auth().signOut()
@@ -33,15 +40,12 @@ struct ProfileView: View {
                         .cornerRadius(8)
                 }
                 .padding()
-                
+
                 Spacer()
             }
         }
-    }
-}
-
-#Preview {
-    NavigationStack {
-        ProfileView(showAuthSheet: .constant(false))
+        .task {
+            await userVM.loadProfile()
+        }
     }
 }
