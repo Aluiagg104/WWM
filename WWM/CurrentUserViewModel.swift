@@ -6,27 +6,30 @@
 //
 
 import Foundation
-import FirebaseAuth
-import FirebaseFirestore
 
 @MainActor
 final class CurrentUserViewModel: ObservableObject {
     @Published var pfpBase64: String? = nil
+    @Published var username: String? = nil
 
     func loadProfile() async {
         do {
-            if let base64 = try await FirestoreManager.shared.fetchCurrentUserProfile() {
-                self.pfpBase64 = base64
-                // Optional: lokal cachen für schnelleren App-Start
-                UserDefaults.standard.set(base64, forKey: "pfpBase64")
+            if let user = try await FirestoreManager.shared.fetchCurrentUser() {
+                self.pfpBase64 = user.pfpData
+                self.username = user.username
+                // Optional: lokal cachen
+                UserDefaults.standard.set(user.pfpData, forKey: "pfpBase64")
+                UserDefaults.standard.set(user.username, forKey: "username")
             } else {
-                // Fallback: lokaler Cache (falls vorhanden)
+                // Fallback aus lokalem Cache
                 self.pfpBase64 = UserDefaults.standard.string(forKey: "pfpBase64")
+                self.username  = UserDefaults.standard.string(forKey: "username")
             }
         } catch {
-            print("loadProfile error:", error.localizedDescription)
-            // Fallback auf lokalen Cache
+            // Fallback bei Fehler
             self.pfpBase64 = UserDefaults.standard.string(forKey: "pfpBase64")
+            self.username  = UserDefaults.standard.string(forKey: "username")
+            print("loadProfile error:", error.localizedDescription)
         }
     }
 }

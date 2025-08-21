@@ -7,6 +7,14 @@ import Foundation
 import FirebaseAuth
 import FirebaseFirestore
 
+struct AppUser {
+    let uid: String
+    let email: String
+    let username: String
+    let pfpData: String?
+}
+
+
 final class FirestoreManager {
     static let shared = FirestoreManager()
     private init() {}
@@ -38,5 +46,17 @@ final class FirestoreManager {
         try await users.document(uid).setData(["pfpData": base64,
                                                "updatedAt": FieldValue.serverTimestamp()],
                                               merge: true)
+    }
+    
+    func fetchCurrentUser() async throws -> AppUser? {
+        guard let uid = Auth.auth().currentUser?.uid else { return nil }
+        let snap = try await users.document(uid).getDocument()
+        guard let data = snap.data() else { return nil }
+        return AppUser(
+            uid: data["uid"] as? String ?? "",
+            email: data["email"] as? String ?? "",
+            username: data["username"] as? String ?? "",
+            pfpData: data["pfpData"] as? String
+        )
     }
 }

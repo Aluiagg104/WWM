@@ -7,47 +7,79 @@
 
 import SwiftUI
 import FirebaseAuth
+import UIKit
 
 struct ProfileView: View {
     @Binding var showAuthSheet: Bool
     @StateObject private var userVM = CurrentUserViewModel()
+    
+    @State private var ShowFriendsView: Bool = false
 
     var body: some View {
         ZStack {
-            Color(hex: "#EAEAEA").ignoresSafeArea()
+            Color("#EAEAEA").ignoresSafeArea()
             
-            VStack {
-                Base64ImageView(
-                    base64: userVM.pfpBase64 ?? UserDefaults.standard.string(forKey: "pfpBase64"),
-                    size: 120,
-                    cornerRadius: 60
-                )
-                .padding()
-
-                Text("Friends: ")
-                
-                Button {
-                    do {
-                        try Auth.auth().signOut()
-                        showAuthSheet = true
-                    } catch {
-                        print(error.localizedDescription)
+            ScrollView {
+                Section {
+                    Button(action: {
+                        print("button clicked 7")
+                    }) {
+                        HStack {
+                            Base64ImageView(
+                                base64: userVM.pfpBase64 ?? UserDefaults.standard.string(forKey: "pfpBase64"),
+                                size: 120,
+                                cornerRadius: 60
+                            )
+                            Spacer()
+                            Text(userVM.username ?? "Username")
+                                .font(.largeTitle)
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Text(">")
+                        }
+                        .padding()
+                        .foregroundColor(.white)
                     }
-                } label: {
-                    Text("Sign Out")
-                        .foregroundStyle(Color(hex: "#F8F9FA"))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                        .background(Color(hex: "#2B2B2B"))
-                        .cornerRadius(8)
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .cornerRadius(20)
+                    .padding()
                 }
-                .padding()
+                
+                Section {
+                    Button(action: {
+                        ShowFriendsView = true
+                    }) {
+                        HStack {
+                            Image(systemName: "person.2.fill")
+                            
+                            Text("Freunde")
+                            
+                            Spacer()
+                            
+                            Text(">")
+                        }
+                        .padding()
+                    }
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .cornerRadius(20)
+                    .padding()
+                }
+                // z. B. in ProfileView
+                .fullScreenCover(isPresented: $ShowFriendsView) {
+                    NavigationStack {
+                        FriendsView(showAuthSheet: $showAuthSheet)
+                    }
+                }
 
-                Spacer()
             }
         }
-        .task {
-            await userVM.loadProfile()
-        }
+        .background(Color(.systemBackground))
+        .navigationTitle("Einstellungen")
+        .toolbarBackground(Color(hex: "#55A630"), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .task { await userVM.loadProfile() }
+        
+        Spacer()
+        
     }
 }

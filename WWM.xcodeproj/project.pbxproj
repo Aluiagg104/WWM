@@ -24,6 +24,7 @@
 		A71A2B752E5798D200549B16 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A2B742E5798D200549B16 /* ImageCache.swift */; };
 		A71A2B772E57990500549B16 /* Base64ImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A2B762E57990500549B16 /* Base64ImageView.swift */; };
 		A71A2B792E579E3300549B16 /* CurrentUserViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A2B782E579E3300549B16 /* CurrentUserViewModel.swift */; };
+		A7490FE72E57C4F500C850F3 /* FriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7490FE62E57C4F500C850F3 /* FriendsView.swift */; };
 		A7AB157B2E54F4C700C01F12 /* Color+Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7AB156F2E54F4C700C01F12 /* Color+Extension.swift */; };
 		A7AB157C2E54F4C700C01F12 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7AB15702E54F4C700C01F12 /* ContentView.swift */; };
 		A7AB15822E54F4C700C01F12 /* WWMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7AB15772E54F4C700C01F12 /* WWMApp.swift */; };
@@ -46,6 +47,7 @@
 		A71A2B742E5798D200549B16 /* ImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCache.swift; sourceTree = "<group>"; };
 		A71A2B762E57990500549B16 /* Base64ImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base64ImageView.swift; sourceTree = "<group>"; };
 		A71A2B782E579E3300549B16 /* CurrentUserViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentUserViewModel.swift; sourceTree = "<group>"; };
+		A7490FE62E57C4F500C850F3 /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
 		A7AB156C2E54F4C700C01F12 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A7AB156F2E54F4C700C01F12 /* Color+Extension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Extension.swift"; sourceTree = "<group>"; };
 		A7AB15702E54F4C700C01F12 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -108,6 +110,7 @@
 				A7AB15702E54F4C700C01F12 /* ContentView.swift */,
 				057701852E563FB8006E13B5 /* FeedView.swift */,
 				057701972E5662CF006E13B5 /* ProfileView.swift */,
+				A7490FE62E57C4F500C850F3 /* FriendsView.swift */,
 				A71A2B742E5798D200549B16 /* ImageCache.swift */,
 				0577018B2E564895006E13B5 /* PostCardView.swift */,
 				057701872E56412A006E13B5 /* AuthenticationView.swift */,
@@ -214,6 +217,7 @@
 				A71A2B732E5794F500549B16 /* ImageUtils.swift in Sources */,
 				A71A2B712E57946A00549B16 /* UIImage+Resize.swift in Sources */,
 				A7AB157B2E54F4C700C01F12 /* Color+Extension.swift in Sources */,
+				A7490FE72E57C4F500C850F3 /* FriendsView.swift in Sources */,
 				A7AB157C2E54F4C700C01F12 /* ContentView.swift in Sources */,
 				A7AB15822E54F4C700C01F12 /* WWMApp.swift in Sources */,
 				A71A2B772E57990500549B16 /* Base64ImageView.swift in Sources */,
