@@ -6,11 +6,14 @@
 //
 
 import SwiftUI
+import FirebaseAuth
 
 struct FriendsView: View {
     @Binding var showAuthSheet: Bool
     @StateObject private var userVM = CurrentUserViewModel()
 
+    @State private var showScanner = false
+    
     var body: some View {
         ZStack {
             VStack(spacing: 16) {
@@ -26,16 +29,26 @@ struct FriendsView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+
                 Button {
-                    print("open QR Code Scanner")
+                    showScanner = true
                 } label: {
-                    Image(systemName: "camera")
+                    Label("QR scannen", systemImage: "camera")
+                }
+                .fullScreenCover(isPresented: $showScanner) {
+                    ScannerScreen { code in
+                        print("✅ Gescannter Code:", code)
+                        // z.B. Task { await handleScanned(uid: code) }
+
+                        // Hier das Cover schließen:
+                        showScanner = false
+                    }
                 }
             }
             
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    print("show qr code")
+                NavigationLink {
+                    QRCodeView(text: userVM.username ?? "Username")
                 } label: {
                     Image(systemName: "qrcode")
                 }
@@ -43,6 +56,10 @@ struct FriendsView: View {
         }
         .task { await userVM.loadProfile() }
         .navigationTitle("Deine Freunde")
+    }
+    
+    func handleScanned(uid: String) async {
+        print(uid)
     }
 }
 
