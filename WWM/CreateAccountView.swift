@@ -49,12 +49,15 @@ struct CreateAccountView: View {
                 TextField("Email", text: $email)
                     .autocorrectionDisabled(true)
                     .textInputAutocapitalization(.never)
+                    .textFieldStyle(.roundedBorder)
                 
                 SecureField("Password", text: $password)
+                    .textFieldStyle(.roundedBorder)
                 
                 TextField("Username", text: $username)
                     .autocorrectionDisabled(true)
                     .textInputAutocapitalization(.never)
+                    .textFieldStyle(.roundedBorder)
                 
                 Spacer()
                 
@@ -97,11 +100,5 @@ struct CreateAccountView: View {
             .toolbarBackground(Color(hex: "#55A630"), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
         }
-    }
-}
-
-#Preview {
-    NavigationStack {
-        CreateAccountView(showAuthSheet: .constant(true))
     }
 }

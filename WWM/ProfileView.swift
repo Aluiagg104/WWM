@@ -24,6 +24,8 @@ struct ProfileView: View {
                 )
                 .padding()
 
+                Text("Friends: ")
+                
                 Button {
                     do {
                         try Auth.auth().signOut()

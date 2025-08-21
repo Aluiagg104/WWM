@@ -22,8 +22,10 @@ struct SignInView: View {
                 TextField("Email", text: $email)
                     .autocorrectionDisabled(true)
                     .textInputAutocapitalization(.never)
+                    .textFieldStyle(.roundedBorder)
                 
                 SecureField("Password", text: $password)
+                    .textFieldStyle(.roundedBorder)
                 
                 Spacer()
                 
