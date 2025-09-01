@@ -71,6 +71,34 @@ final class FirestoreManager {
 // MARK: - Friends APIs (gleiche Datei, damit "private db/users" zugreifbar sind)
 
 extension FirestoreManager {
+    private var posts: CollectionReference { db.collection("posts") }
+
+    func createPost(imageBase64: String,
+                    caption: String?,
+                    address: String?,
+                    lat: Double?,
+                    lng: Double?) async throws {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+
+        let user = try? await fetchCurrentUser()
+
+        var data: [String: Any] = [
+            "uid": uid,
+            "username": user?.username ?? "",
+            "pfpData": user?.pfpData ?? "",
+            "imageData": imageBase64,
+            "caption": caption ?? "",
+            "address": address ?? "",
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+
+        if let lat = lat, let lng = lng {
+            data["lat"] = lat
+            data["lng"] = lng
+        }
+
+        try await posts.addDocument(data: data)
+    }
 
     private func friends(of uid: String) -> CollectionReference {
         users.document(uid).collection("friends")
@@ -154,5 +182,4 @@ extension FirestoreManager {
         batch.deleteDocument(bRef)
         try await batch.commit()
     }
-
 }

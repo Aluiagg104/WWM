@@ -56,6 +56,7 @@ struct FriendsView: View {
     @Binding var showAuthSheet: Bool
     @StateObject private var vm = FriendsViewModel()
     @State private var showScanner = false
+    @Binding var ShowFriendsView: Bool
 
     // Für den Bestätigungs-Dialog
     @State private var pendingDeletion: AppUser? = nil
@@ -99,6 +100,12 @@ struct FriendsView: View {
         }
         .navigationTitle("Deine Freunde")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { ShowFriendsView = false } label: {
+                    Label("schließen", systemImage: "xmark")
+                }
+            }
+            
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showScanner = true } label: {
                     Label("QR scannen", systemImage: "camera")

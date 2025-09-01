@@ -56,9 +56,3 @@ struct SignInView: View {
         }
     }
 }
-
-#Preview {
-    NavigationStack {
-        SignInView(showAuthSheet: .constant(true))
-    }
-}
