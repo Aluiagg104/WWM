@@ -62,8 +62,9 @@ struct CreateAccountView: View {
                 Spacer()
                 
                 Button {
-                    guard let image = selectedImage,
-                          let pfpData = imageToBase64JPEG(image, quality: 0.7, maxDimension: 512) else {
+                    let imageToUse: UIImage = selectedImage ?? UIImage.defaultAvatar()
+
+                    guard let pfpData = imageToBase64JPEG(imageToUse, quality: 0.7, maxDimension: 512) else {
                         return
                     }
 
@@ -97,6 +98,29 @@ struct CreateAccountView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color(hex: "#55A630"), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+        }
+    }
+}
+
+fileprivate extension UIImage {
+    static func defaultAvatar(side: CGFloat = 512,
+                              symbolName: String = "person.crop.circle.fill",
+                              bgColor: UIColor = .systemGray5,
+                              tintColor: UIColor = .systemGray) -> UIImage {
+        let size = CGSize(width: side, height: side)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { ctx in
+            bgColor.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+
+            let inset: CGFloat = side * 0.1
+            let symbolRect = CGRect(x: inset, y: inset, width: side - inset*2, height: side - inset*2)
+
+            let config = UIImage.SymbolConfiguration(pointSize: side * 0.7, weight: .regular)
+            if let symbol = UIImage(systemName: symbolName, withConfiguration: config)?
+                .withTintColor(tintColor, renderingMode: .alwaysOriginal) {
+                symbol.draw(in: symbolRect)
+            }
         }
     }
 }
