@@ -25,10 +25,7 @@ struct ProfileView: View {
 
             ScrollView {
                 VStack(spacing: 16) {
-
-                    // Header-Karte
                     Button {
-                        // optional action
                     } label: {
                         HStack(spacing: 12) {
                             Base64ImageView(
@@ -61,7 +58,6 @@ struct ProfileView: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal)
 
-                    // Karten: Freunde / Deine Beiträge
                     VStack(spacing: 12) {
                         Button {
                             ShowFriendsView = true
@@ -115,7 +111,6 @@ struct ProfileView: View {
                     }
                     .padding(.horizontal)
 
-                    // Abmelden
                     Button {
                         do {
                             try AuthenticationManager.shared.signOut()

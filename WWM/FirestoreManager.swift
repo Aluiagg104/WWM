@@ -7,8 +7,6 @@ import Foundation
 import FirebaseAuth
 import FirebaseFirestore
 
-// MARK: - Models
-
 struct AppUser {
     let uid: String
     let email: String
@@ -16,17 +14,13 @@ struct AppUser {
     let pfpData: String?
 }
 
-// MARK: - Firestore Manager
-
 final class FirestoreManager {
     static let shared = FirestoreManager()
     private init() {}
 
-    // Hinweis: "private" reicht hier, weil die Extension UNTEN in derselben Datei steht.
     private let db = Firestore.firestore()
     private var users: CollectionReference { db.collection("users") }
 
-    /// Nutzer-Dokument anlegen/aktualisieren (Doc-ID = uid)
     func addUser(uid: String, email: String?, username: String, pfpData: String?) async throws {
         let data: [String: Any] = [
             "uid": uid,
@@ -38,14 +32,12 @@ final class FirestoreManager {
         try await users.document(uid).setData(data, merge: true)
     }
 
-    /// Base64-Profilbild des aktuellen Users laden
     func fetchCurrentUserProfile() async throws -> String? {
         guard let uid = Auth.auth().currentUser?.uid else { return nil }
         let snap = try await users.document(uid).getDocument()
         return snap.get("pfpData") as? String
     }
 
-    /// Nur das Profilbild aktualisieren
     func updateProfileImageBase64(_ base64: String) async throws {
         guard let uid = Auth.auth().currentUser?.uid else { return }
         try await users.document(uid).setData([
@@ -54,7 +46,6 @@ final class FirestoreManager {
         ], merge: true)
     }
 
-    /// Aktuellen Nutzer vollständig laden
     func fetchCurrentUser() async throws -> AppUser? {
         guard let uid = Auth.auth().currentUser?.uid else { return nil }
         let snap = try await users.document(uid).getDocument()
@@ -68,7 +59,6 @@ final class FirestoreManager {
     }
 }
 
-// MARK: - Friends APIs (gleiche Datei, damit "private db/users" zugreifbar sind)
 
 extension FirestoreManager {
     private var posts: CollectionReference { db.collection("posts") }
@@ -104,7 +94,6 @@ extension FirestoreManager {
         users.document(uid).collection("friends")
     }
 
-    /// (Optional) Falls du mal nach Username suchen willst
     func fetchUser(byUsername username: String) async throws -> AppUser? {
         let snap = try await users
             .whereField("username", isEqualTo: username)
@@ -120,7 +109,6 @@ extension FirestoreManager {
         )
     }
 
-    /// Freundschaft beidseitig anlegen (idempotent)
     func addFriend(between myUid: String, and otherUid: String) async throws {
         guard myUid != otherUid else { return }
         let batch = db.batch()
@@ -135,7 +123,6 @@ extension FirestoreManager {
         try await batch.commit()
     }
 
-    /// Live-Listener auf die Friend-UIDs des Users
     func listenFriends(of uid: String, onChange: @escaping ([String]) -> Void) -> ListenerRegistration {
         friends(of: uid)
             .order(by: "since", descending: false)
@@ -145,7 +132,6 @@ extension FirestoreManager {
             }
     }
 
-    /// User-Profile in Batches (max. 10 IDs pro IN-Query)
     func fetchUsers(byUIDs uids: [String]) async throws -> [AppUser] {
         guard !uids.isEmpty else { return [] }
         var result: [AppUser] = []
@@ -168,7 +154,6 @@ extension FirestoreManager {
             }
         }
 
-        // Reihenfolge der gelieferten UIDs beibehalten
         let order = Dictionary(uniqueKeysWithValues: uids.enumerated().map { ($1, $0) })
         return result.sorted { (order[$0.uid] ?? 0) < (order[$1.uid] ?? 0) }
     }

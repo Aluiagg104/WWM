@@ -48,8 +48,6 @@ final class ScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
         stopSession()
     }
 
-    // MARK: Permission + Setup
-
     private func requestPermissionAndConfigureIfNeeded() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
@@ -78,7 +76,6 @@ final class ScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
             session.beginConfiguration()
             defer { session.commitConfiguration() }
 
-            // Input
             guard let device = AVCaptureDevice.default(for: .video),
                   let input = try? AVCaptureDeviceInput(device: device),
                   session.canAddInput(input) else {
@@ -87,7 +84,6 @@ final class ScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
             }
             session.addInput(input)
 
-            // Output (QR)
             let output = AVCaptureMetadataOutput()
             guard session.canAddOutput(output) else {
                 DispatchQueue.main.async { self.showError("Kamera-Output fehlgeschlagen") }
@@ -97,7 +93,6 @@ final class ScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
             output.setMetadataObjectsDelegate(self, queue: .main)
             output.metadataObjectTypes = [.qr]
 
-            // Preview-Layer am Main-Thread
             DispatchQueue.main.async {
                 let layer = AVCaptureVideoPreviewLayer(session: self.session)
                 layer.videoGravity = .resizeAspectFill
@@ -108,8 +103,6 @@ final class ScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
             }
         }
     }
-
-    // MARK: Start/Stop (NICHT am Main-Thread!)
 
     private func startSession() {
         sessionQueue.async { [weak self] in
@@ -125,8 +118,6 @@ final class ScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
         }
     }
 
-    // MARK: Delegate
-
     func metadataOutput(_ output: AVCaptureMetadataOutput,
                         didOutput metadataObjects: [AVMetadataObject],
                         from connection: AVCaptureConnection) {
@@ -136,11 +127,9 @@ final class ScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
               let value = first.stringValue, !value.isEmpty,
               let transformed = layer.transformedMetadataObject(for: first) else { return }
 
-        // Haptik & kurzer Visual-Ping (optional)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         ping(at: transformed.bounds)
 
-        // Session stoppen und Callback
         stopSession()
         onCode?(value)
     }
@@ -155,8 +144,6 @@ final class ScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
             v.alpha = 0
         }, completion: { _ in v.removeFromSuperview() })
     }
-
-    // MARK: Fehler-Labels
 
     private func showDeniedLabel() { showError("Kamerazugriff verweigert.\nEinstellungen > Datenschutz > Kamera") }
     private func showError(_ text: String) {

@@ -5,7 +5,7 @@
 
 import SwiftUI
 import FirebaseAuth
-import FirebaseFirestore // für ListenerRegistration
+import FirebaseFirestore
 
 @MainActor
 final class FriendsViewModel: ObservableObject {
@@ -31,7 +31,6 @@ final class FriendsViewModel: ObservableObject {
         listener = nil
     }
 
-    /// QR enthält die UID des anderen Users
     func addFriendFromScannedValue(_ value: String) async {
         guard let myUid = Auth.auth().currentUser?.uid else { return }
         do {
@@ -41,7 +40,6 @@ final class FriendsViewModel: ObservableObject {
         }
     }
 
-    /// Freundschaft beidseitig entfernen
     func removeFriend(uid otherUid: String) async {
         guard let myUid = Auth.auth().currentUser?.uid else { return }
         do {
@@ -58,7 +56,6 @@ struct FriendsView: View {
     @State private var showScanner = false
     @Binding var ShowFriendsView: Bool
 
-    // Für den Bestätigungs-Dialog
     @State private var pendingDeletion: AppUser? = nil
     @State private var showConfirmDelete = false
 
@@ -113,7 +110,6 @@ struct FriendsView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
-                    // QR zeigt die EIGENE UID
                     QRCodeView(text: Auth.auth().currentUser?.uid ?? "NO_UID")
                 } label: {
                     Image(systemName: "qrcode")
@@ -127,7 +123,6 @@ struct FriendsView: View {
                 Task { await vm.addFriendFromScannedValue(code) }
             }
         }
-        // Bestätigungs-Alert
         .alert("Freund entfernen?", isPresented: $showConfirmDelete, presenting: pendingDeletion) { friend in
             Button("Entfernen", role: .destructive) {
                 Task {

@@ -11,7 +11,7 @@ import UIKit
 struct Base64ImageView: View {
     let base64: String?
     var size: CGFloat = 120
-    var cornerRadius: CGFloat = 999 // macht's kreisrund
+    var cornerRadius: CGFloat = 999
 
     @State private var uiImage: UIImage?
     @State private var isLoading = false

@@ -34,17 +34,15 @@ struct ScannerScreen: View {
 
     var body: some View {
         ZStack {
-            // Kamera + Scan
             QRScannerView { value in
                 guard !hasScanned else { return }
                 hasScanned = true
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 onScanned(value)
-                dismiss() // sofort schließen
+                dismiss()
             }
             .ignoresSafeArea()
 
-            // Reticle exakt zentriert
             VStack {
                 Spacer()
                 RoundedRectangle(cornerRadius: reticleCorner, style: .continuous)
@@ -55,7 +53,6 @@ struct ScannerScreen: View {
             }
             .allowsHitTesting(false)
 
-            // Top-Bar: Close links, Torch rechts
             VStack {
                 HStack {
                     Button {
@@ -87,7 +84,6 @@ struct ScannerScreen: View {
             .foregroundStyle(.white)
             .allowsHitTesting(true)
 
-            // Hinweis unten
             VStack {
                 Spacer()
                 Text("Richte die Kamera auf einen QR-Code")

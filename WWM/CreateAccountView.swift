@@ -67,13 +67,11 @@ struct CreateAccountView: View {
                         return
                     }
 
-                    // sofort lokal cachen, damit die UI direkt was hat
                     UserDefaults.standard.set(pfpData, forKey: "pfpBase64")
 
                     Task {
                         do {
                             let user = try await AuthenticationManager.shared.createUser(email: email, password: password)
-                            // user ist vom Typ UserModel
                             try await FirestoreManager.shared.addUser(
                                 uid: user.uid,
                                 email: user.email,
