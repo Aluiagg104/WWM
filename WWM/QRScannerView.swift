@@ -32,8 +32,18 @@ final class ScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer?.frame = view.bounds
-        if let connection = previewLayer?.connection, connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
+
+        if let connection = previewLayer?.connection {
+            if #available(iOS 17.0, *) {
+                let portraitAngle: CGFloat = 90   // Portrait = 90°
+                if connection.isVideoRotationAngleSupported(portraitAngle) {
+                    connection.videoRotationAngle = portraitAngle
+                }
+            } else {
+                if connection.isVideoOrientationSupported {
+                    connection.videoOrientation = .portrait
+                }
+            }
         }
     }
 

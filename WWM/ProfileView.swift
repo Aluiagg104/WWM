@@ -33,6 +33,7 @@ struct ProfileView: View {
                                 size: 80,
                                 cornerRadius: 40
                             )
+                            
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(userVM.username ?? "Username")
                                     .font(.title2.weight(.semibold))
@@ -41,9 +42,6 @@ struct ProfileView: View {
                                     Text(email).font(.subheadline).foregroundStyle(.secondary)
                                 }
                             }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundStyle(.tertiary)
                         }
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)

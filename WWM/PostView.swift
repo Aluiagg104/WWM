@@ -129,7 +129,7 @@ struct PostView: View {
                         .font(.headline)
                     TextField("Was gibt’s?", text: $caption, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: caption) { newValue in
+                        .onChange(of: caption) { newValue, oldValue in
                             if newValue.count > 250 { caption = String(newValue.prefix(250)) }
                         }
                 }

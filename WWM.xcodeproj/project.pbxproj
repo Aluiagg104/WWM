@@ -19,6 +19,7 @@
 		058AFF342E54865900FED6C0 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 058AFF332E54865900FED6C0 /* FirebaseAnalytics */; };
 		058AFF362E54865900FED6C0 /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = 058AFF352E54865900FED6C0 /* FirebaseAnalyticsCore */; };
 		058AFF382E5487F200FED6C0 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 058AFF372E5487F200FED6C0 /* FirebaseAuth */; };
+		A70F8C012E69E1460000C9B8 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70F8C002E69E1460000C9B8 /* ChatView.swift */; };
 		A71A2B712E57946A00549B16 /* UIImage+Resize.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A2B702E57946A00549B16 /* UIImage+Resize.swift */; };
 		A71A2B732E5794F500549B16 /* ImageUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A2B722E5794F500549B16 /* ImageUtils.swift */; };
 		A71A2B752E5798D200549B16 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A2B742E5798D200549B16 /* ImageCache.swift */; };
@@ -47,6 +48,7 @@
 		057701932E56608B006E13B5 /* FirestoreManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirestoreManager.swift; sourceTree = "<group>"; };
 		057701972E5662CF006E13B5 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		05A5B7052E53A14400264EA3 /* WWM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WWM.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A70F8C002E69E1460000C9B8 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		A71A2B702E57946A00549B16 /* UIImage+Resize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIImage+Resize.swift"; sourceTree = "<group>"; };
 		A71A2B722E5794F500549B16 /* ImageUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageUtils.swift; sourceTree = "<group>"; };
 		A71A2B742E5798D200549B16 /* ImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCache.swift; sourceTree = "<group>"; };
@@ -123,6 +125,7 @@
 				057701972E5662CF006E13B5 /* ProfileView.swift */,
 				A7EE2E322E65E153003B3C6F /* YourPostsView.swift */,
 				A7490FE62E57C4F500C850F3 /* FriendsView.swift */,
+				A70F8C002E69E1460000C9B8 /* ChatView.swift */,
 				A7AAB96D2E57D67E0000F201 /* ScannerScreen.swift */,
 				A7AAB9672E57CF260000F201 /* QRScannerView.swift */,
 				A7AAB9652E57CE000000F201 /* QrCodeView.swift */,
@@ -225,6 +228,7 @@
 			files = (
 				A7AAB96E2E57D67E0000F201 /* ScannerScreen.swift in Sources */,
 				0577018C2E564895006E13B5 /* PostCardView.swift in Sources */,
+				A70F8C012E69E1460000C9B8 /* ChatView.swift in Sources */,
 				057701942E56608B006E13B5 /* FirestoreManager.swift in Sources */,
 				0577018E2E564FAF006E13B5 /* SignInView.swift in Sources */,
 				A71A2B792E579E3300549B16 /* CurrentUserViewModel.swift in Sources */,
