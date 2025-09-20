@@ -18,8 +18,10 @@ final class FirestoreManager {
     static let shared = FirestoreManager()
     private init() {}
 
-    private let db = Firestore.firestore()
+    let db = Firestore.firestore()
     private var users: CollectionReference { db.collection("users") }
+
+    // MARK: - Users
 
     func addUser(uid: String, email: String?, username: String, pfpData: String?) async throws {
         let data: [String: Any] = [
@@ -59,6 +61,18 @@ final class FirestoreManager {
     }
 }
 
+// MARK: - Posts
+
+struct ChatMessage: Identifiable, Hashable {
+    let id: String
+    let text: String
+    let senderId: String
+    let createdAt: Date?
+}
+
+enum FirestorePostError: Error {
+    case notAuthenticated
+}
 
 extension FirestoreManager {
     private var posts: CollectionReference { db.collection("posts") }
@@ -68,14 +82,18 @@ extension FirestoreManager {
                     address: String?,
                     lat: Double?,
                     lng: Double?) async throws {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
+        guard let uid = Auth.auth().currentUser?.uid else {
+            throw FirestorePostError.notAuthenticated
+        }
 
         let user = try? await fetchCurrentUser()
+        let username = user?.username ?? ""
+        let pfp = user?.pfpData ?? ""
 
         var data: [String: Any] = [
             "uid": uid,
-            "username": user?.username ?? "",
-            "pfpData": user?.pfpData ?? "",
+            "username": username,
+            "pfpData": pfp,
             "imageData": imageBase64,
             "caption": caption ?? "",
             "address": address ?? "",
@@ -89,7 +107,63 @@ extension FirestoreManager {
 
         try await posts.addDocument(data: data)
     }
+}
 
+// MARK: - Chats
+
+extension FirestoreManager {
+    private var chats: CollectionReference { db.collection("chats") }
+
+    func chatId(between a: String, and b: String) -> String {
+        return a < b ? "\(a)_\(b)" : "\(b)_\(a)"
+    }
+
+    func listenMessages(with otherUid: String, onChange: @escaping ([ChatMessage]) -> Void) -> ListenerRegistration {
+        guard let myUid = Auth.auth().currentUser?.uid else {
+            return db.collection("_noop").addSnapshotListener { _, _ in }
+        }
+        let cid = chatId(between: myUid, and: otherUid)
+        return chats.document(cid)
+            .collection("messages")
+            .order(by: "createdAt", descending: false)
+            .addSnapshotListener { snap, _ in
+                let items: [ChatMessage] = snap?.documents.compactMap { doc in
+                    let d = doc.data()
+                    return ChatMessage(
+                        id: doc.documentID,
+                        text: (d["text"] as? String) ?? "",
+                        senderId: (d["senderId"] as? String) ?? "",
+                        createdAt: (d["createdAt"] as? Timestamp)?.dateValue()
+                    )
+                } ?? []
+                onChange(items)
+            }
+    }
+
+    func sendMessage(to otherUid: String, text: String) async throws {
+        guard let myUid = Auth.auth().currentUser?.uid else { return }
+        let cid = chatId(between: myUid, and: otherUid)
+        let chatRef = chats.document(cid)
+
+        try await chatRef.setData([
+            "participants": [myUid, otherUid],
+            "updatedAt": FieldValue.serverTimestamp(),
+            "lastMessage": text,
+            "lastSender": myUid
+        ], merge: true)
+
+        let msgRef = chatRef.collection("messages").document()
+        try await msgRef.setData([
+            "text": text,
+            "senderId": myUid,
+            "createdAt": FieldValue.serverTimestamp()
+        ])
+    }
+}
+
+// MARK: - Friends
+
+extension FirestoreManager {
     private func friends(of uid: String) -> CollectionReference {
         users.document(uid).collection("friends")
     }
@@ -135,7 +209,6 @@ extension FirestoreManager {
     func fetchUsers(byUIDs uids: [String]) async throws -> [AppUser] {
         guard !uids.isEmpty else { return [] }
         var result: [AppUser] = []
-
         let chunks = stride(from: 0, to: uids.count, by: 10)
             .map { Array(uids[$0..<min($0 + 10, uids.count)]) }
 
@@ -157,7 +230,7 @@ extension FirestoreManager {
         let order = Dictionary(uniqueKeysWithValues: uids.enumerated().map { ($1, $0) })
         return result.sorted { (order[$0.uid] ?? 0) < (order[$1.uid] ?? 0) }
     }
-    
+
     func removeFriend(between myUid: String, and otherUid: String) async throws {
         guard myUid != otherUid else { return }
         let batch = db.batch()
