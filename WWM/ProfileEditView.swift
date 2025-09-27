@@ -2,8 +2,6 @@
 //  ProfileEditView.swift
 //  WWM
 //
-//  Created by Oliver Henkel on 27.09.25.
-//
 
 import SwiftUI
 import PhotosUI
@@ -42,9 +40,11 @@ struct ProfileEditView: View {
                             Circle()
                                 .fill(Color(UIColor.secondarySystemBackground))
                                 .frame(width: 120, height: 120)
-                                .overlay(Image(systemName: "person.crop.circle.fill")
-                                    .font(.system(size: 72))
-                                    .foregroundColor(.secondary))
+                                .overlay(
+                                    Image(systemName: "person.crop.circle.fill")
+                                        .font(.system(size: 72))
+                                        .foregroundColor(.secondary)
+                                )
                                 .overlay(Circle().stroke(Color(UIColor.separator), lineWidth: 0.5))
                         }
 
@@ -185,10 +185,10 @@ struct ProfileEditView: View {
             return
         }
 
-        // Bild -> Base64 (unter ~950 KB)
+        // Bild -> Base64 (unter ~950 KB)  ❗️verwende die Funktion aus UIImage+Resize.swift
         var newBase64: String? = nil
         if let img = pickedImage {
-            guard let b64 = img.base64UnderLimit() else {
+            guard let b64 = img.base64Under950KB() else {
                 errorText = "Bild ist zu groß. Bitte ein kleineres Bild wählen."
                 return
             }
@@ -196,13 +196,14 @@ struct ProfileEditView: View {
         }
 
         do {
-            try await FirestoreManager.shared.updateProfile(newUsername: newUsername,
-                                                            newPfpBase64: newBase64)
+            try await FirestoreManager.shared.updateProfile(
+                newUsername: newUsername,
+                newPfpBase64: newBase64
+            )
             await MainActor.run {
                 infoText = "Profil gespeichert."
                 originalUsername = newUsername
                 if newBase64 != nil { originalBase64 = newBase64; pickedImage = nil }
-                // optional automatisch schließen:
                 dismiss()
             }
         } catch let err as NSError {
@@ -214,51 +215,5 @@ struct ProfileEditView: View {
         } catch {
             errorText = "Speichern fehlgeschlagen: \(error.localizedDescription)"
         }
-    }
-}
-
-// MARK: - Bild-Helfer (Komprimierung < ~1 MB Base64)
-
-fileprivate enum B64Limit {
-    static let maxBase64Bytes = 950_000
-    static let initialMaxDimension: CGFloat = 1600
-}
-
-fileprivate extension UIImage {
-    func downscaledToFit(maxPixel: CGFloat) -> UIImage {
-        let w = size.width, h = size.height
-        let scale = min(maxPixel / max(w, h), 1)
-        let newSize = CGSize(width: w * scale, height: h * scale)
-        let renderer = UIGraphicsImageRenderer(size: newSize)
-        return renderer.image { _ in self.draw(in: CGRect(origin: .zero, size: newSize)) }
-    }
-
-    func base64UnderLimit() -> String? {
-        var maxDim = B64Limit.initialMaxDimension
-        for _ in 0..<4 {
-            let resized = self.downscaledToFit(maxPixel: maxDim)
-            if let data = resized.jpegDataFittingBase64(maxBase64Bytes: B64Limit.maxBase64Bytes) {
-                return data.base64EncodedString()
-            }
-            maxDim *= 0.85
-        }
-        return nil
-    }
-
-    func jpegDataFittingBase64(maxBase64Bytes: Int) -> Data? {
-        var low: CGFloat = 0.1, high: CGFloat = 0.95, best: Data?
-        if let d = self.jpegData(compressionQuality: high),
-           Self.base64Size(of: d) <= maxBase64Bytes { return d }
-        for _ in 0..<8 {
-            let q = (low + high) / 2
-            guard let d = self.jpegData(compressionQuality: q) else { break }
-            let b64 = Self.base64Size(of: d)
-            if b64 > maxBase64Bytes { high = max(q - 0.05, 0.01) } else { best = d; low = min(q + 0.05, 0.99) }
-        }
-        return best
-    }
-
-    private static func base64Size(of data: Data) -> Int {
-        ((data.count + 2) / 3) * 4
     }
 }

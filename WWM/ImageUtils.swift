@@ -8,7 +8,7 @@
 import UIKit
 
 func imageToBase64JPEG(_ image: UIImage, quality: CGFloat = 0.7, maxDimension: CGFloat = 1280) -> String? {
-    let scaledImage = image.scaled(maxDimension: maxDimension)
+    let scaledImage = image.downscaledToFit(maxPixel: maxDimension)
     guard let data = scaledImage.jpegData(compressionQuality: quality) else { return nil }
     return data.base64EncodedString()
 }

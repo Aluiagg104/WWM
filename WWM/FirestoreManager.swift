@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 
@@ -76,57 +77,142 @@ extension FirestoreManager {
             pfpData: data["pfpData"] as? String
         )
     }
-
-    // ✅ NEU: Serverseitig "zuletzt Chats gesehen" setzen
-    func markAllChatsSeen() async {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
-        do {
-            try await users.document(uid).setData([
-                "chatsLastSeenAt": FieldValue.serverTimestamp()
-            ], merge: true)
-        } catch {
-            print("markAllChatsSeen failed:", error.localizedDescription)
-        }
-    }
-
-    // (optional) lesen, falls benötigt
-    func fetchChatsLastSeenAt() async throws -> Date? {
-        guard let uid = Auth.auth().currentUser?.uid else { return nil }
-        let snap = try await users.document(uid).getDocument()
-        return (snap.get("chatsLastSeenAt") as? Timestamp)?.dateValue()
-    }
 }
 
-// MARK: - Posts
+// MARK: - Posts (mit Firestore-Chunking)
+
+private extension FirestoreManager {
+    /// winziges Thumb (für Feed-Avatar im Post), ~10–30 KiB
+    func tinyThumbBase64(from base64: String) -> String? {
+        guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
+              let img = UIImage(data: data) else { return nil }
+        // kleine Kante + moderate Qualität
+        return img.base64UnderFirestoreLimit(
+            maxBase64Bytes: 30 * 1024,
+            startMaxDim: 96,
+            minMaxDim: 48,
+            dimStep: 0.85,
+            qualityStart: 0.9,
+            qualityMin: 0.35,
+            qualityStep: 0.1
+        )
+    }
+
+    /// kleines Vorschau-Bild fürs Feed (damit das Hauptbild nicht inline sein muss)
+    func previewBase64(from fullBase64: String) -> String? {
+        guard let data = Data(base64Encoded: fullBase64, options: .ignoreUnknownCharacters),
+              let img = UIImage(data: data) else { return nil }
+        return img.base64UnderFirestoreLimit(
+            maxBase64Bytes: 120 * 1024,   // ~120 KiB
+            startMaxDim: 480,
+            minMaxDim: 240,
+            dimStep: 0.85,
+            qualityStart: 0.9,
+            qualityMin: 0.35,
+            qualityStep: 0.1
+        )
+    }
+
+    /// String in Blöcke aufteilen (Zeichen-basiert)
+    func chunkBase64(_ s: String, maxChunkChars: Int) -> [String] {
+        guard s.count > maxChunkChars else { return [s] }
+        var res: [String] = []
+        var start = s.startIndex
+        while start < s.endIndex {
+            let end = s.index(start, offsetBy: maxChunkChars, limitedBy: s.endIndex) ?? s.endIndex
+            res.append(String(s[start..<end]))
+            start = end
+        }
+        return res
+    }
+}
 
 extension FirestoreManager {
     private var posts: CollectionReference { db.collection("posts") }
 
+    /// Abwärtskompatibel: alter Einstieg bleibt bestehen, ruft intern die chunking-Variante.
     func createPost(imageBase64: String,
                     caption: String?,
                     address: String?,
                     lat: Double?,
                     lng: Double?) async throws {
+        try await createPostChunkedIfNeeded(imageBase64: imageBase64,
+                                            caption: caption,
+                                            address: address,
+                                            lat: lat,
+                                            lng: lng)
+    }
+
+    /// Speichert Post. Falls das Bild zu groß ist, wird es in Subcollection `/posts/{id}/chunks` gespeichert.
+    func createPostChunkedIfNeeded(imageBase64: String,
+                                   caption: String?,
+                                   address: String?,
+                                   lat: Double?,
+                                   lng: Double?) async throws {
         guard let uid = Auth.auth().currentUser?.uid else { throw FirestorePostError.notAuthenticated }
 
-        let user = try? await fetchCurrentUser()
-        let username = user?.username ?? ""
-        let pfp = user?.pfpData ?? ""
+        let me = try? await fetchCurrentUser()
+        let username = me?.username ?? ""
+        let pfpThumb = me?.pfpData.flatMap { tinyThumbBase64(from: $0) } ?? ""
 
-        var data: [String: Any] = [
+        // Vorschau fürs Feed
+        let previewB64 = previewBase64(from: imageBase64)
+
+        // konservativer Schwellwert, damit das Post-Dokument unter 1 MiB bleibt
+        let inlineThreshold = 700 * 1024 // 700 KiB
+        let isInlineOK = imageBase64.lengthOfBytes(using: .utf8) <= inlineThreshold
+
+        let postRef = posts.document()
+        var meta: [String: Any] = [
             "uid": uid,
             "username": username,
-            "pfpData": pfp,
-            "imageData": imageBase64,
+            "pfpThumb": pfpThumb,
             "caption": caption ?? "",
             "address": address ?? "",
-            "createdAt": FieldValue.serverTimestamp()
+            "createdAt": FieldValue.serverTimestamp(),
+            "hasChunks": !isInlineOK
         ]
-        if let lat, let lng {
-            data["lat"] = lat
-            data["lng"] = lng
+        if let lat, let lng { meta["lat"] = lat; meta["lng"] = lng }
+        if let previewB64 { meta["imagePreview"] = previewB64 }
+
+        if isInlineOK {
+            meta["imageData"] = imageBase64
+            try await postRef.setData(meta)
+            return
         }
-        try await posts.addDocument(data: data)
+
+        // 1) Metadokument anlegen (ohne volles Bild)
+        try await postRef.setData(meta)
+
+        // 2) Bild in Chunks ablegen (je ~240k Zeichen)
+        let parts = chunkBase64(imageBase64, maxChunkChars: 240_000)
+        let chunkCol = postRef.collection("chunks")
+
+        var batch = db.batch()
+        for (i, part) in parts.enumerated() {
+            let cRef = chunkCol.document(String(i))
+            batch.setData(["uid": uid, "idx": i, "data": part], forDocument: cRef)
+            if i % 450 == 449 { // Batch-Sicherheit
+                try await batch.commit()
+                batch = db.batch()
+            }
+        }
+        try await batch.commit()
+        try await postRef.setData(["chunkCount": parts.count], merge: true)
+    }
+
+    /// Vollständiges Bild wieder zusammensetzen (für Detailansicht).
+    func fetchPostImageBase64(postId: String) async throws -> String? {
+        let postRef = posts.document(postId)
+        let snap = try await postRef.getDocument()
+        let d = snap.data() ?? [:]
+        if let inline = d["imageData"] as? String { return inline }
+
+        let q = postRef.collection("chunks").order(by: "idx", descending: false)
+        let chunkSnap = try await q.getDocuments()
+        let parts = chunkSnap.documents.compactMap { $0.data()["data"] as? String }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined()
     }
 }
 
@@ -263,7 +349,7 @@ extension FirestoreManager {
     }
 }
 
-// MARK: - Username Index (transaction wrapped to async/await)
+// MARK: - Username Index (Transaction)
 
 extension FirestoreManager {
     private var usernames: CollectionReference { db.collection("usernames") }
@@ -275,12 +361,8 @@ extension FirestoreManager {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             db.runTransaction({ [self] (txn, errorPointer) -> Any? in
                 let userSnap: DocumentSnapshot
-                do {
-                    userSnap = try txn.getDocument(userRef)
-                } catch let e as NSError {
-                    errorPointer?.pointee = e
-                    return nil
-                }
+                do { userSnap = try txn.getDocument(userRef) }
+                catch let e as NSError { errorPointer?.pointee = e; return nil }
 
                 let currentData = userSnap.data() ?? [:]
                 let oldUsername = (currentData["username"] as? String) ?? ""
@@ -292,21 +374,15 @@ extension FirestoreManager {
                 }
 
                 if let newNameRaw = newUsername?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !newNameRaw.isEmpty,
-                   newNameRaw != oldUsername {
+                   !newNameRaw.isEmpty, newNameRaw != oldUsername {
 
                     let oldKey = oldUsername.lowercased()
                     let newKey = newNameRaw.lowercased()
 
                     let newRef = self.usernames.document(newKey)
-
                     let newSnap: DocumentSnapshot
-                    do {
-                        newSnap = try txn.getDocument(newRef)
-                    } catch let e as NSError {
-                        errorPointer?.pointee = e
-                        return nil
-                    }
+                    do { newSnap = try txn.getDocument(newRef) }
+                    catch let e as NSError { errorPointer?.pointee = e; return nil }
 
                     if newSnap.exists {
                         let owner = (newSnap.data()?["uid"] as? String) ?? ""
@@ -330,30 +406,36 @@ extension FirestoreManager {
 
                 return nil
             }, completion: { _, error in
-                if let error {
-                    cont.resume(throwing: error)
-                } else {
-                    cont.resume(returning: ())
-                }
+                if let error { cont.resume(throwing: error) } else { cont.resume(returning: ()) }
             })
         }
     }
 }
 
-// MARK: - Chats Seen (Server-Zeitstempel)
+// MARK: - Chats "gesehen" markieren (Badge zurücksetzen)
 extension FirestoreManager {
-    /// Setzt users/{uid}.chatsLastSeenAt auf serverTimestamp und aktualisiert auch den lokalen Cache.
-    func markChatsSeenNow() async {
+    /// Merkt sich, dass Chats jetzt gesehen wurden.
+    /// - Parameter graceSeconds: kleiner Puffer damit Serverzeiten (updatedAt) nicht knapp hinter dem lokalen Timestamp liegen.
+    func markChatsSeenNow(graceSeconds: TimeInterval = 2.0) async {
+        // 1) Lokal für Badge-Logik (FeedView etc.)
+        let ts = Date().addingTimeInterval(graceSeconds).timeIntervalSince1970
+        UserDefaults.standard.set(ts, forKey: "chats_last_seen_at")
+
+        // 2) Optional: auch in /users/{uid} schreiben (gegen Geräteeuhr-Differenzen)
         guard let uid = Auth.auth().currentUser?.uid else { return }
         do {
             try await users.document(uid).setData([
-                "chatsLastSeenAt": FieldValue.serverTimestamp()
+                "chatSeenAt": FieldValue.serverTimestamp()
             ], merge: true)
-
-            // lokaler Fallback, falls mal offline
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "chats_last_seen_at")
         } catch {
-            print("markChatsSeenNow failed:", error.localizedDescription)
+            // nicht kritisch – Badge funktioniert auch rein lokal
+            print("markChatsSeenNow write failed:", error.localizedDescription)
         }
+    }
+
+    /// Praktischer Helfer, falls du das Datum irgendwo brauchst.
+    func localChatsLastSeen() -> Date {
+        let raw = UserDefaults.standard.object(forKey: "chats_last_seen_at") as? Double ?? 0
+        return Date(timeIntervalSince1970: raw)
     }
 }

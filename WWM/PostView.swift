@@ -94,9 +94,7 @@ struct PostView: View {
                             .scaledToFit()
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                             .overlay(alignment: .topTrailing) {
-                                Button {
-                                    pickedImage = nil
-                                } label: {
+                                Button { pickedImage = nil } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .font(.title2)
                                         .symbolRenderingMode(.hierarchical)
@@ -115,25 +113,23 @@ struct PostView: View {
                             .background(.ultraThinMaterial)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
-                        .onChange(of: selectedItem) { newItem in
+                        .onChange(of: selectedItem) { _, newItem in
                             Task { await loadPickedImage(from: newItem) }
                         }
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Beschreibung")
-                        .font(.headline)
+                    Text("Beschreibung").font(.headline)
                     TextField("Was gibt’s?", text: $caption, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: caption) { newValue in
+                        .onChange(of: caption) { newValue, _ in
                             if newValue.count > 250 { caption = String(newValue.prefix(250)) }
                         }
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Standort")
-                        .font(.headline)
+                    Text("Standort").font(.headline)
 
                     Text(loc.address ?? "Adresse wird ermittelt …")
                         .font(.callout)
@@ -172,9 +168,7 @@ struct PostView: View {
                 .disabled(isSaving || pickedImage == nil)
 
                 if let err = saveError {
-                    Text(err)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
+                    Text(err).font(.footnote).foregroundStyle(.red)
                 }
             }
             .padding()
@@ -187,8 +181,8 @@ struct PostView: View {
         do {
             if let data = try await item.loadTransferable(type: Data.self),
                let uiImage = UIImage(data: data) {
-                // Vorab leicht verkleinern, damit nachfolgende Kompression weniger Arbeit hat
-                let downsized = uiImage.downscaledToFit(maxPixel: 2048)
+                // Vorab leicht verkleinern (Performance & geringere Chunk-Anzahl)
+                let downsized = uiImage.downscaledToFit(maxPixel: 2400)
                 await MainActor.run { pickedImage = downsized }
             }
         } catch {
@@ -201,95 +195,28 @@ struct PostView: View {
         isSaving = true
         saveError = nil
         defer { isSaving = false }
-        
-        guard let base64 = img.base64Under950KB() else {
-            saveError = "Bild ist zu groß/komplex. Bitte ein anderes Bild wählen."
+
+        // Für Chunking genügt ein „normales“ JPEG – nicht zwingend < 1 MiB
+        guard let data = img.jpegData(compressionQuality: 0.85) else {
+            saveError = "Bild konnte nicht kodiert werden."
             return
         }
+        let base64 = data.base64EncodedString()
 
         let lat = loc.lastLocation?.coordinate.latitude
         let lng = loc.lastLocation?.coordinate.longitude
         let address = loc.address
 
         do {
-            try await FirestoreManager.shared.createPost(
-                imageBase64: base64,
-                caption: caption.isEmpty ? nil : caption,
-                address: address,
-                lat: lat,
-                lng: lng
-            )
+            try await FirestoreManager.shared.createPost(imageBase64: base64,
+                                                         caption: caption.isEmpty ? nil : caption,
+                                                         address: address,
+                                                         lat: lat,
+                                                         lng: lng)
             caption = ""
             pickedImage = nil
         } catch {
             saveError = "Speichern fehlgeschlagen: \(error.localizedDescription)"
         }
-    }
-}
-
-// MARK: - Image helpers
-
-fileprivate extension UIImage {
-
-    // Downscale auf eine maximale Kantenlänge (erhält Seitenverhältnis)
-    func downscaledToFit(maxPixel: CGFloat) -> UIImage {
-        let w = size.width, h = size.height
-        let maxSide = max(w, h)
-        guard maxSide > maxPixel else { return self }
-
-        let scale = maxPixel / maxSide
-        let newSize = CGSize(width: floor(w * scale), height: floor(h * scale))
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
-        return renderer.image { _ in
-            self.draw(in: CGRect(origin: .zero, size: newSize))
-        }
-    }
-
-    // Base64-Größe (≈ 4 * ceil(n/3))
-    static func base64Size(of data: Data) -> Int {
-        ((data.count + 2) / 3) * 4
-    }
-
-    /// Reduziert zuerst JPEG-Qualität, danach Dimensionen – prüft nach JEDEM Schritt,
-    /// ob Base64 < 950 KB ist. Wiederholt, bis es passt oder Grenzen erreicht sind.
-    func base64Under950KB(startMaxDim: CGFloat = 2400,
-                          minMaxDim: CGFloat = 160,
-                          dimStep: CGFloat = 0.85,
-                          qualityStart: CGFloat = 0.95,
-                          qualityMin: CGFloat = 0.30,
-                          qualityStep: CGFloat = 0.10,
-                          limitBytes: Int = 950_000) -> String? {
-
-        var maxDim = min(startMaxDim, max(size.width, size.height))
-        var workingImage = self.downscaledToFit(maxPixel: maxDim)
-
-        while maxDim >= minMaxDim {
-            // 1) Qualität schrittweise senken und jedes Mal Größe prüfen
-            var q = qualityStart
-            while q >= qualityMin {
-                if let data = workingImage.jpegData(compressionQuality: q),
-                   UIImage.base64Size(of: data) <= limitBytes {
-                    return data.base64EncodedString()
-                }
-                q -= qualityStep
-            }
-
-            // 2) Wenn immer noch zu groß: Dimension weiter verkleinern und erneut versuchen
-            let nextDim = maxDim * dimStep
-            if nextDim < minMaxDim { break }
-            maxDim = nextDim
-            workingImage = workingImage.downscaledToFit(maxPixel: maxDim)
-        }
-
-        // Notfall: ganz klein + minimale Qualität
-        let tiny = self.downscaledToFit(maxPixel: minMaxDim)
-        if let d = tiny.jpegData(compressionQuality: max(0.01, qualityMin)),
-           UIImage.base64Size(of: d) <= limitBytes {
-            return d.base64EncodedString()
-        }
-        return nil
     }
 }

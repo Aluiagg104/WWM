@@ -11,8 +11,10 @@ import UIKit
 struct FeedPost: Identifiable, Hashable {
     let id: String
     let username: String
-    let pfpBase64: String?
-    let imageBase64: String
+    let pfpThumbBase64: String?
+    let imagePreviewBase64: String? // kleines Preview
+    let imageInlineBase64: String?  // kann nil sein, wenn gechunkt
+    let hasChunks: Bool
     let caption: String
     let address: String
     let createdAt: Date?
@@ -27,13 +29,9 @@ struct FeedView: View {
     @State private var posts: [FeedPost] = []
     @State private var postsListener: ListenerRegistration?
 
-    // Unread-Badge
     @State private var hasUnread = false
     @State private var chatsListener: ListenerRegistration?
-    @State private var userDocListener: ListenerRegistration?
     @State private var authHandle: AuthStateDidChangeListenerHandle?
-    @State private var lastSeenAt: Date? = nil     // vom Server (User-Dokument)
-    @State private var cachedLastSeen: Date? = nil // aus UserDefaults als Fallback
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -47,7 +45,7 @@ struct FeedView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 10) {
                                 Base64ImageView(
-                                    base64: post.pfpBase64,
+                                    base64: post.pfpThumbBase64,
                                     size: 36,
                                     cornerRadius: 18
                                 )
@@ -66,7 +64,9 @@ struct FeedView: View {
                                 }
                             }
 
-                            if let img = UIImage.fromBase64(post.imageBase64) {
+                            // Bevorzugt Preview anzeigen (klein), sonst inline
+                            if let b64 = post.imagePreviewBase64 ?? post.imageInlineBase64,
+                               let img = UIImage.fromBase64(b64) {
                                 Image(uiImage: img)
                                     .resizable()
                                     .scaledToFill()
@@ -151,13 +151,13 @@ struct FeedView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .onAppear {
             showAuthSheet = Auth.auth().currentUser == nil
-            loadCachedLastSeen()
+            ensureLastSeenDefault()
             startListeningPosts()
             attachAuthListenerForUnread()
         }
         .onDisappear {
             stopListeningPosts()
-            stopUnreadListeners()
+            stopListeningUnreadChats()
             if let h = authHandle { Auth.auth().removeStateDidChangeListener(h) }
             authHandle = nil
         }
@@ -167,7 +167,7 @@ struct FeedView: View {
         }
     }
 
-    // MARK: Posts
+    // MARK: - Posts
 
     private func startListeningPosts() {
         stopListeningPosts()
@@ -181,8 +181,10 @@ struct FeedView: View {
                     return FeedPost(
                         id: doc.documentID,
                         username: (d["username"] as? String) ?? "",
-                        pfpBase64: d["pfpData"] as? String,
-                        imageBase64: (d["imageData"] as? String) ?? "",
+                        pfpThumbBase64: d["pfpThumb"] as? String,
+                        imagePreviewBase64: d["imagePreview"] as? String,
+                        imageInlineBase64: d["imageData"] as? String,
+                        hasChunks: (d["hasChunks"] as? Bool) ?? false,
                         caption: (d["caption"] as? String) ?? "",
                         address: (d["address"] as? String) ?? "",
                         createdAt: (d["createdAt"] as? Timestamp)?.dateValue()
@@ -197,76 +199,58 @@ struct FeedView: View {
         postsListener = nil
     }
 
-    // MARK: Unread Badge (server-autoritativer LastSeen)
+    // MARK: - Unread Chats Badge
 
-    private func loadCachedLastSeen() {
-        if let secs = UserDefaults.standard.object(forKey: kChatsLastSeenKey) as? Double {
-            cachedLastSeen = Date(timeIntervalSince1970: secs)
-        } else {
-            cachedLastSeen = Date(timeIntervalSince1970: 0)
+    private func ensureLastSeenDefault() {
+        if UserDefaults.standard.object(forKey: kChatsLastSeenKey) == nil {
             UserDefaults.standard.set(0.0, forKey: kChatsLastSeenKey)
         }
     }
 
     private func attachAuthListenerForUnread() {
         authHandle = Auth.auth().addStateDidChangeListener { _, user in
-            stopUnreadListeners()
+            stopListeningUnreadChats()
             if user != nil {
-                startUserDocLastSeenListener()
-                startChatsListener()
+                startListeningUnreadChats()
             } else {
                 hasUnread = false
             }
         }
         if Auth.auth().currentUser != nil {
-            startUserDocLastSeenListener()
-            startChatsListener()
+            startListeningUnreadChats()
         }
     }
 
-    private func startUserDocLastSeenListener() {
-        userDocListener?.remove()
+    private func startListeningUnreadChats() {
+        stopListeningUnreadChats()
         guard let uid = Auth.auth().currentUser?.uid else { return }
-        userDocListener = Firestore.firestore()
-            .collection("users").document(uid)
-            .addSnapshotListener { snap, _ in
-                let serverSeen = (snap?.get("chatsLastSeenAt") as? Timestamp)?.dateValue()
-                self.lastSeenAt = serverSeen
-                if let serverSeen {
-                    UserDefaults.standard.set(serverSeen.timeIntervalSince1970, forKey: kChatsLastSeenKey)
-                    self.cachedLastSeen = serverSeen
-                }
-            }
-    }
 
-    private func startChatsListener() {
-        chatsListener?.remove()
-        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let lastSeenSeconds = UserDefaults.standard.object(forKey: kChatsLastSeenKey) as? Double
+        let lastSeen = Date(timeIntervalSince1970: lastSeenSeconds ?? 0)
+        let lastSeenMissing = (lastSeenSeconds == nil)
 
         chatsListener = Firestore.firestore()
             .collection("chats")
             .whereField("participants", arrayContains: uid)
             .addSnapshotListener { snap, _ in
                 let docs = snap?.documents ?? []
-                let baseline = self.lastSeenAt ?? self.cachedLastSeen ?? Date(timeIntervalSince1970: 0)
-
                 var unread = false
                 for doc in docs {
                     let d = doc.data()
                     let lastSender = d["lastSender"] as? String
                     let updatedAt = (d["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
-                    if lastSender != uid && updatedAt > baseline {
-                        unread = true
-                        break
+                    if lastSender != uid {
+                        if lastSeenMissing || updatedAt > lastSeen {
+                            unread = true
+                            break
+                        }
                     }
                 }
                 self.hasUnread = unread
             }
     }
 
-    private func stopUnreadListeners() {
-        userDocListener?.remove()
-        userDocListener = nil
+    private func stopListeningUnreadChats() {
         chatsListener?.remove()
         chatsListener = nil
     }
