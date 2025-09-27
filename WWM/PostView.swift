@@ -2,8 +2,6 @@
 //  PostView.swift
 //  WWM
 //
-//  Created by Oliver Henkel on 31.08.25.
-//
 
 import SwiftUI
 import Foundation
@@ -85,7 +83,6 @@ struct PostView: View {
     @State private var pickedImage: UIImage? = nil
     @State private var isSaving = false
     @State private var saveError: String? = nil
-    @State private var showSettingsHint = false
 
     var body: some View {
         ScrollView {
@@ -118,7 +115,7 @@ struct PostView: View {
                             .background(.ultraThinMaterial)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
-                        .onChange(of: selectedItem) { _, newItem in
+                        .onChange(of: selectedItem) { newItem in
                             Task { await loadPickedImage(from: newItem) }
                         }
                     }
@@ -129,7 +126,7 @@ struct PostView: View {
                         .font(.headline)
                     TextField("Was gibt’s?", text: $caption, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: caption) { newValue, oldValue in
+                        .onChange(of: caption) { newValue in
                             if newValue.count > 250 { caption = String(newValue.prefix(250)) }
                         }
                 }
@@ -190,7 +187,8 @@ struct PostView: View {
         do {
             if let data = try await item.loadTransferable(type: Data.self),
                let uiImage = UIImage(data: data) {
-                let downsized = uiImage.downscaledToFit(maxPixel: 1280)
+                // Vorab leicht verkleinern, damit nachfolgende Kompression weniger Arbeit hat
+                let downsized = uiImage.downscaledToFit(maxPixel: 2048)
                 await MainActor.run { pickedImage = downsized }
             }
         } catch {
@@ -203,9 +201,9 @@ struct PostView: View {
         isSaving = true
         saveError = nil
         defer { isSaving = false }
-
-        guard let base64 = img.base64UnderLimit() else {
-            saveError = "Bild ist zu groß. Bitte ein kleineres Bild wählen."
+        
+        guard let base64 = img.base64Under950KB() else {
+            saveError = "Bild ist zu groß/komplex. Bitte ein anderes Bild wählen."
             return
         }
 
@@ -229,66 +227,69 @@ struct PostView: View {
     }
 }
 
+// MARK: - Image helpers
+
 fileprivate extension UIImage {
+
+    // Downscale auf eine maximale Kantenlänge (erhält Seitenverhältnis)
     func downscaledToFit(maxPixel: CGFloat) -> UIImage {
         let w = size.width, h = size.height
-        let scale = min(maxPixel / max(w, h), 1)
-        let newSize = CGSize(width: w * scale, height: h * scale)
-        let renderer = UIGraphicsImageRenderer(size: newSize)
+        let maxSide = max(w, h)
+        guard maxSide > maxPixel else { return self }
+
+        let scale = maxPixel / maxSide
+        let newSize = CGSize(width: floor(w * scale), height: floor(h * scale))
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
         return renderer.image { _ in
             self.draw(in: CGRect(origin: .zero, size: newSize))
         }
     }
 
-    func jpegBase64(quality: CGFloat) -> String? {
-        guard let data = self.jpegData(compressionQuality: quality) else { return nil }
-        return data.base64EncodedString()
+    // Base64-Größe (≈ 4 * ceil(n/3))
+    static func base64Size(of data: Data) -> Int {
+        ((data.count + 2) / 3) * 4
     }
-}
 
-fileprivate enum FirestoreImageLimit {
-    static let maxBase64Bytes = 950_000
-    static let initialMaxDimension: CGFloat = 1600
-}
+    /// Reduziert zuerst JPEG-Qualität, danach Dimensionen – prüft nach JEDEM Schritt,
+    /// ob Base64 < 950 KB ist. Wiederholt, bis es passt oder Grenzen erreicht sind.
+    func base64Under950KB(startMaxDim: CGFloat = 2400,
+                          minMaxDim: CGFloat = 160,
+                          dimStep: CGFloat = 0.85,
+                          qualityStart: CGFloat = 0.95,
+                          qualityMin: CGFloat = 0.30,
+                          qualityStep: CGFloat = 0.10,
+                          limitBytes: Int = 950_000) -> String? {
 
-fileprivate extension UIImage {
-    func base64UnderLimit() -> String? {
-        var maxDim = FirestoreImageLimit.initialMaxDimension
-        for _ in 0..<4 {
-            let resized = self.downscaledToFit(maxPixel: maxDim)
-            if let data = resized.jpegDataFittingBase64(maxBase64Bytes: FirestoreImageLimit.maxBase64Bytes) {
-                return data.base64EncodedString()
+        var maxDim = min(startMaxDim, max(size.width, size.height))
+        var workingImage = self.downscaledToFit(maxPixel: maxDim)
+
+        while maxDim >= minMaxDim {
+            // 1) Qualität schrittweise senken und jedes Mal Größe prüfen
+            var q = qualityStart
+            while q >= qualityMin {
+                if let data = workingImage.jpegData(compressionQuality: q),
+                   UIImage.base64Size(of: data) <= limitBytes {
+                    return data.base64EncodedString()
+                }
+                q -= qualityStep
             }
-            maxDim *= 0.85
+
+            // 2) Wenn immer noch zu groß: Dimension weiter verkleinern und erneut versuchen
+            let nextDim = maxDim * dimStep
+            if nextDim < minMaxDim { break }
+            maxDim = nextDim
+            workingImage = workingImage.downscaledToFit(maxPixel: maxDim)
+        }
+
+        // Notfall: ganz klein + minimale Qualität
+        let tiny = self.downscaledToFit(maxPixel: minMaxDim)
+        if let d = tiny.jpegData(compressionQuality: max(0.01, qualityMin)),
+           UIImage.base64Size(of: d) <= limitBytes {
+            return d.base64EncodedString()
         }
         return nil
     }
-
-    func jpegDataFittingBase64(maxBase64Bytes: Int) -> Data? {
-        var low: CGFloat = 0.1
-        var high: CGFloat = 0.95
-        var best: Data?
-
-        if let d = self.jpegData(compressionQuality: high),
-           Self.base64Size(of: d) <= maxBase64Bytes {
-            return d
-        }
-
-        for _ in 0..<8 {
-            let q = (low + high) / 2
-            guard let d = self.jpegData(compressionQuality: q) else { break }
-            let b64 = Self.base64Size(of: d)
-            if b64 > maxBase64Bytes {
-                high = max(q - 0.05, 0.01)
-            } else {
-                best = d
-                low = min(q + 0.05, 0.99)
-            }
-        }
-        return best
-    }
-
-    private static func base64Size(of data: Data) -> Int {
-        return ((data.count + 2) / 3) * 4
-        }
 }

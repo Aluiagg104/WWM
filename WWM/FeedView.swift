@@ -27,9 +27,13 @@ struct FeedView: View {
     @State private var posts: [FeedPost] = []
     @State private var postsListener: ListenerRegistration?
 
+    // Unread-Badge
     @State private var hasUnread = false
     @State private var chatsListener: ListenerRegistration?
+    @State private var userDocListener: ListenerRegistration?
     @State private var authHandle: AuthStateDidChangeListenerHandle?
+    @State private var lastSeenAt: Date? = nil     // vom Server (User-Dokument)
+    @State private var cachedLastSeen: Date? = nil // aus UserDefaults als Fallback
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -147,13 +151,13 @@ struct FeedView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .onAppear {
             showAuthSheet = Auth.auth().currentUser == nil
-            ensureLastSeenDefault()
+            loadCachedLastSeen()
             startListeningPosts()
             attachAuthListenerForUnread()
         }
         .onDisappear {
             stopListeningPosts()
-            stopListeningUnreadChats()
+            stopUnreadListeners()
             if let h = authHandle { Auth.auth().removeStateDidChangeListener(h) }
             authHandle = nil
         }
@@ -163,7 +167,7 @@ struct FeedView: View {
         }
     }
 
-    // MARK: - Posts
+    // MARK: Posts
 
     private func startListeningPosts() {
         stopListeningPosts()
@@ -193,58 +197,76 @@ struct FeedView: View {
         postsListener = nil
     }
 
-    // MARK: - Unread Chats Badge
+    // MARK: Unread Badge (server-autoritativer LastSeen)
 
-    private func ensureLastSeenDefault() {
-        if UserDefaults.standard.object(forKey: kChatsLastSeenKey) == nil {
-            UserDefaults.standard.set(0.0, forKey: kChatsLastSeenKey) // 1970
+    private func loadCachedLastSeen() {
+        if let secs = UserDefaults.standard.object(forKey: kChatsLastSeenKey) as? Double {
+            cachedLastSeen = Date(timeIntervalSince1970: secs)
+        } else {
+            cachedLastSeen = Date(timeIntervalSince1970: 0)
+            UserDefaults.standard.set(0.0, forKey: kChatsLastSeenKey)
         }
     }
 
     private func attachAuthListenerForUnread() {
         authHandle = Auth.auth().addStateDidChangeListener { _, user in
-            stopListeningUnreadChats()
+            stopUnreadListeners()
             if user != nil {
-                startListeningUnreadChats()
+                startUserDocLastSeenListener()
+                startChatsListener()
             } else {
                 hasUnread = false
             }
         }
         if Auth.auth().currentUser != nil {
-            startListeningUnreadChats()
+            startUserDocLastSeenListener()
+            startChatsListener()
         }
     }
 
-    private func startListeningUnreadChats() {
-        stopListeningUnreadChats()
+    private func startUserDocLastSeenListener() {
+        userDocListener?.remove()
         guard let uid = Auth.auth().currentUser?.uid else { return }
+        userDocListener = Firestore.firestore()
+            .collection("users").document(uid)
+            .addSnapshotListener { snap, _ in
+                let serverSeen = (snap?.get("chatsLastSeenAt") as? Timestamp)?.dateValue()
+                self.lastSeenAt = serverSeen
+                if let serverSeen {
+                    UserDefaults.standard.set(serverSeen.timeIntervalSince1970, forKey: kChatsLastSeenKey)
+                    self.cachedLastSeen = serverSeen
+                }
+            }
+    }
 
-        let lastSeenSeconds = UserDefaults.standard.object(forKey: kChatsLastSeenKey) as? Double
-        let lastSeen = Date(timeIntervalSince1970: lastSeenSeconds ?? 0)
-        let lastSeenMissing = (lastSeenSeconds == nil)
+    private func startChatsListener() {
+        chatsListener?.remove()
+        guard let uid = Auth.auth().currentUser?.uid else { return }
 
         chatsListener = Firestore.firestore()
             .collection("chats")
             .whereField("participants", arrayContains: uid)
             .addSnapshotListener { snap, _ in
                 let docs = snap?.documents ?? []
+                let baseline = self.lastSeenAt ?? self.cachedLastSeen ?? Date(timeIntervalSince1970: 0)
+
                 var unread = false
                 for doc in docs {
                     let d = doc.data()
                     let lastSender = d["lastSender"] as? String
                     let updatedAt = (d["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
-                    if lastSender != uid {
-                        if lastSeenMissing || updatedAt > lastSeen {
-                            unread = true
-                            break
-                        }
+                    if lastSender != uid && updatedAt > baseline {
+                        unread = true
+                        break
                     }
                 }
                 self.hasUnread = unread
             }
     }
 
-    private func stopListeningUnreadChats() {
+    private func stopUnreadListeners() {
+        userDocListener?.remove()
+        userDocListener = nil
         chatsListener?.remove()
         chatsListener = nil
     }

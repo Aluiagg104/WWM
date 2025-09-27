@@ -34,6 +34,8 @@ struct ChatView: View {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
                     }
+                    // Neue eingehende Nachricht gilt als gelesen, sobald wir sie sehen
+                    Task { await markSeenIfNeeded() }
                 }
             }
 
@@ -63,21 +65,26 @@ struct ChatView: View {
         myUid = Auth.auth().currentUser?.uid ?? ""
         stop()
         Task {
-            // WICHTIG: Chat-Dokument (mit participants) sicherstellen, sonst blocken die Rules
+            // Chat-Dokument sicherstellen (wichtig für Rules)
             try? await FirestoreManager.shared.ensureChat(with: user.uid)
 
-            // Badge-Logik: „Chats gesehen“ markieren
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "chats_last_seen_at")
+            // Beim Öffnen sofort „gesehen“ setzen
+            await FirestoreManager.shared.markChatsSeenNow()
 
             listener = FirestoreManager.shared.listenMessages(with: user.uid) { msgs in
                 Task { @MainActor in
                     messages = msgs
+                    // Nach dem Laden/Update der Messages erneut als „gesehen“ markieren,
+                    // aber nur wenn die letzte Nachricht nicht von mir ist.
+                    await markSeenIfNeeded()
                 }
             }
         }
     }
 
     private func stop() {
+        // Beim Verlassen ein letztes Mal „gesehen“ setzen
+        Task { await FirestoreManager.shared.markChatsSeenNow() }
         listener?.remove()
         listener = nil
     }
@@ -88,9 +95,16 @@ struct ChatView: View {
         input = ""
         do {
             try await FirestoreManager.shared.sendMessage(to: user.uid, text: text)
+            // Senden braucht kein markSeen – die Nachricht ist von mir.
         } catch {
             print("send failed:", error.localizedDescription)
         }
+    }
+
+    /// Markiert nur dann als gelesen, wenn die letzte Nachricht vom Gegenüber stammt.
+    private func markSeenIfNeeded() async {
+        guard let last = messages.last, last.senderId != myUid else { return }
+        await FirestoreManager.shared.markChatsSeenNow()
     }
 }
 
@@ -125,17 +139,5 @@ private struct MessageRow: View {
             .background(bg)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .frame(maxWidth: .infinity, alignment: align)
-    }
-}
-
-
-extension FirestoreManager {
-    func ensureChat(with otherUid: String) async throws {
-        guard let myUid = Auth.auth().currentUser?.uid else { return }
-        let cid = chatId(between: myUid, and: otherUid)
-        try await db.collection("chats").document(cid).setData([
-            "participants": [myUid, otherUid],
-            "updatedAt": FieldValue.serverTimestamp()
-        ], merge: true)
     }
 }

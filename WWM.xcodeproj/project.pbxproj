@@ -25,6 +25,7 @@
 		A71A2B752E5798D200549B16 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A2B742E5798D200549B16 /* ImageCache.swift */; };
 		A71A2B772E57990500549B16 /* Base64ImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A2B762E57990500549B16 /* Base64ImageView.swift */; };
 		A71A2B792E579E3300549B16 /* CurrentUserViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A2B782E579E3300549B16 /* CurrentUserViewModel.swift */; };
+		A71CD50C2E881A3300D01CF4 /* ProfileEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71CD50B2E881A3200D01CF4 /* ProfileEditView.swift */; };
 		A7266C3C2E64F2C300992B47 /* PostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7266C3B2E64F2C300992B47 /* PostView.swift */; };
 		A7490FE72E57C4F500C850F3 /* FriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7490FE62E57C4F500C850F3 /* FriendsView.swift */; };
 		A7AAB9662E57CE000000F201 /* QrCodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7AAB9652E57CE000000F201 /* QrCodeView.swift */; };
@@ -54,6 +55,7 @@
 		A71A2B742E5798D200549B16 /* ImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCache.swift; sourceTree = "<group>"; };
 		A71A2B762E57990500549B16 /* Base64ImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base64ImageView.swift; sourceTree = "<group>"; };
 		A71A2B782E579E3300549B16 /* CurrentUserViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentUserViewModel.swift; sourceTree = "<group>"; };
+		A71CD50B2E881A3200D01CF4 /* ProfileEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileEditView.swift; sourceTree = "<group>"; };
 		A7266C3B2E64F2C300992B47 /* PostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostView.swift; sourceTree = "<group>"; };
 		A7490FE62E57C4F500C850F3 /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
 		A7AAB9652E57CE000000F201 /* QrCodeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrCodeView.swift; sourceTree = "<group>"; };
@@ -123,6 +125,7 @@
 				057701852E563FB8006E13B5 /* FeedView.swift */,
 				A7266C3B2E64F2C300992B47 /* PostView.swift */,
 				057701972E5662CF006E13B5 /* ProfileView.swift */,
+				A71CD50B2E881A3200D01CF4 /* ProfileEditView.swift */,
 				A7EE2E322E65E153003B3C6F /* YourPostsView.swift */,
 				A7490FE62E57C4F500C850F3 /* FriendsView.swift */,
 				A70F8C002E69E1460000C9B8 /* ChatView.swift */,
@@ -180,7 +183,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1640;
-				LastUpgradeCheck = 1640;
+				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					05A5B7042E53A14400264EA3 = {
 						CreatedOnToolsVersion = 16.4;
@@ -236,6 +239,7 @@
 				057701922E565A76006E13B5 /* AuthenticationManager.swift in Sources */,
 				A7266C3C2E64F2C300992B47 /* PostView.swift in Sources */,
 				A71A2B732E5794F500549B16 /* ImageUtils.swift in Sources */,
+				A71CD50C2E881A3300D01CF4 /* ProfileEditView.swift in Sources */,
 				A71A2B712E57946A00549B16 /* UIImage+Resize.swift in Sources */,
 				A7AB157B2E54F4C700C01F12 /* Color+Extension.swift in Sources */,
 				A7490FE72E57C4F500C850F3 /* FriendsView.swift in Sources */,
@@ -290,6 +294,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 6HM33YA9RS;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -313,6 +318,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -353,6 +359,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 6HM33YA9RS;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -369,6 +376,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -381,7 +389,6 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6HM33YA9RS;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Kamera zugriff ja oder nein?";
@@ -416,7 +423,6 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6HM33YA9RS;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Kamera zugriff ja oder nein?";

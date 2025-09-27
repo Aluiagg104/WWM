@@ -25,7 +25,10 @@ struct ProfileView: View {
 
             ScrollView {
                 VStack(spacing: 16) {
-                    Button {
+
+                    // Profil-Karte
+                    NavigationLink {
+                        ProfileEditView()
                     } label: {
                         HStack(spacing: 12) {
                             Base64ImageView(
@@ -33,13 +36,15 @@ struct ProfileView: View {
                                 size: 80,
                                 cornerRadius: 40
                             )
-                            
+
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(userVM.username ?? "Username")
                                     .font(.title2.weight(.semibold))
                                     .foregroundStyle(.primary)
                                 if let email = Auth.auth().currentUser?.email {
-                                    Text(email).font(.subheadline).foregroundStyle(.secondary)
+                                    Text(email)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -51,11 +56,15 @@ struct ProfileView: View {
                                 .stroke(Color(UIColor.separator), lineWidth: 0.5)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 20))
-                        .shadow(color: (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08)), radius: 8, y: 4)
+                        .shadow(
+                            color: (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08)),
+                            radius: 8, x: 0, y: 4
+                        )
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal)
 
+                    // Friends & Your Posts
                     VStack(spacing: 12) {
                         Button {
                             ShowFriendsView = true
@@ -78,7 +87,10 @@ struct ProfileView: View {
                                     .stroke(Color(UIColor.separator), lineWidth: 0.5)
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 20))
-                            .shadow(color: (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08)), radius: 8, y: 4)
+                            .shadow(
+                                color: (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08)),
+                                radius: 8, x: 0, y: 4
+                            )
                         }
                         .buttonStyle(.plain)
 
@@ -103,12 +115,16 @@ struct ProfileView: View {
                                     .stroke(Color(UIColor.separator), lineWidth: 0.5)
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 20))
-                            .shadow(color: (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08)), radius: 8, y: 4)
+                            .shadow(
+                                color: (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08)),
+                                radius: 8, x: 0, y: 4
+                            )
                         }
                         .buttonStyle(.plain)
                     }
                     .padding(.horizontal)
 
+                    // Abmelden
                     Button {
                         do {
                             try AuthenticationManager.shared.signOut()
@@ -135,13 +151,18 @@ struct ProfileView: View {
                                 .stroke(Color(UIColor.separator), lineWidth: 0.5)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 20))
-                        .shadow(color: (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08)), radius: 8, y: 4)
+                        .shadow(
+                            color: (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08)),
+                            radius: 8, x: 0, y: 4
+                        )
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal)
 
                     if let err = signOutError {
-                        Text(err).font(.footnote).foregroundStyle(.red)
+                        Text(err)
+                            .font(.footnote)
+                            .foregroundColor(.red)
                             .padding(.horizontal)
                     }
                 }
