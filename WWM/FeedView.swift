@@ -12,12 +12,13 @@ struct FeedPost: Identifiable, Hashable {
     let id: String
     let username: String
     let pfpThumbBase64: String?
-    let imagePreviewBase64: String? // kleines Preview
-    let imageInlineBase64: String?  // kann nil sein, wenn gechunkt
+    let imagePreviewBase64: String?
+    let imageInlineBase64: String?
     let hasChunks: Bool
     let caption: String
     let address: String
     let createdAt: Date?
+    let strain: String            // ⬅️ NEU
 }
 
 private let kChatsLastSeenKey = "chats_last_seen_at"
@@ -43,6 +44,7 @@ struct FeedView: View {
                 LazyVStack(spacing: 16) {
                     ForEach(posts) { post in
                         VStack(alignment: .leading, spacing: 8) {
+                            // Header: Avatar, Name, Zeit
                             HStack(spacing: 10) {
                                 Base64ImageView(
                                     base64: post.pfpThumbBase64,
@@ -64,7 +66,23 @@ struct FeedView: View {
                                 }
                             }
 
-                            // Bevorzugt Preview anzeigen (klein), sonst inline
+                            // Sorte Badge
+                            if !post.strain.isEmpty {
+                                HStack {
+                                    Label(post.strain, systemImage: "leaf.fill")
+                                        .labelStyle(.titleAndIcon)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(
+                                            Capsule().fill(Color(hex: "#55A630"))
+                                        )
+                                    Spacer(minLength: 0)
+                                }
+                            }
+
+                            // Bild (Preview bevorzugt)
                             if let b64 = post.imagePreviewBase64 ?? post.imageInlineBase64,
                                let img = UIImage.fromBase64(b64) {
                                 Image(uiImage: img)
@@ -79,6 +97,7 @@ struct FeedView: View {
                                     .frame(height: 220)
                             }
 
+                            // Caption
                             if !post.caption.isEmpty {
                                 Text(post.caption)
                                     .font(.body)
@@ -88,6 +107,7 @@ struct FeedView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
 
+                            // Adresse
                             if !post.address.isEmpty {
                                 HStack(alignment: .top, spacing: 6) {
                                     Image(systemName: "mappin.and.ellipse")
@@ -187,7 +207,8 @@ struct FeedView: View {
                         hasChunks: (d["hasChunks"] as? Bool) ?? false,
                         caption: (d["caption"] as? String) ?? "",
                         address: (d["address"] as? String) ?? "",
-                        createdAt: (d["createdAt"] as? Timestamp)?.dateValue()
+                        createdAt: (d["createdAt"] as? Timestamp)?.dateValue(),
+                        strain: (d["strain"] as? String) ?? ""      // ⬅️ NEU
                     )
                 }
                 self.posts = items

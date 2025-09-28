@@ -35,7 +35,9 @@ final class FirestoreManager {
     private init() {}
 
     fileprivate let db = Firestore.firestore()
+    // ⬇️ HIER zentral definieren (damit keine Dopplungen in Extensions entstehen)
     fileprivate var users: CollectionReference { db.collection("users") }
+    fileprivate var posts: CollectionReference { db.collection("posts") }
 }
 
 // MARK: - Users
@@ -79,9 +81,9 @@ extension FirestoreManager {
     }
 }
 
-// MARK: - Posts (mit Firestore-Chunking)
+// MARK: - Posts Helpers (nur einmal definiert)
 
-private extension FirestoreManager {
+fileprivate extension FirestoreManager {
     /// winziges Thumb (für Feed-Avatar im Post), ~10–30 KiB
     func tinyThumbBase64(from base64: String) -> String? {
         guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
@@ -127,20 +129,22 @@ private extension FirestoreManager {
     }
 }
 
-extension FirestoreManager {
-    private var posts: CollectionReference { db.collection("posts") }
+// MARK: - Posts (mit Firestore-Chunking & 'strain')
 
+extension FirestoreManager {
     /// Abwärtskompatibel: alter Einstieg bleibt bestehen, ruft intern die chunking-Variante.
     func createPost(imageBase64: String,
                     caption: String?,
                     address: String?,
                     lat: Double?,
-                    lng: Double?) async throws {
+                    lng: Double?,
+                    strain: String? = nil) async throws {
         try await createPostChunkedIfNeeded(imageBase64: imageBase64,
                                             caption: caption,
                                             address: address,
                                             lat: lat,
-                                            lng: lng)
+                                            lng: lng,
+                                            strain: strain)
     }
 
     /// Speichert Post. Falls das Bild zu groß ist, wird es in Subcollection `/posts/{id}/chunks` gespeichert.
@@ -148,7 +152,8 @@ extension FirestoreManager {
                                    caption: String?,
                                    address: String?,
                                    lat: Double?,
-                                   lng: Double?) async throws {
+                                   lng: Double?,
+                                   strain: String? = nil) async throws {
         guard let uid = Auth.auth().currentUser?.uid else { throw FirestorePostError.notAuthenticated }
 
         let me = try? await fetchCurrentUser()
@@ -174,6 +179,7 @@ extension FirestoreManager {
         ]
         if let lat, let lng { meta["lat"] = lat; meta["lng"] = lng }
         if let previewB64 { meta["imagePreview"] = previewB64 }
+        if let s = strain, !s.isEmpty { meta["strain"] = s }   // Sorte speichern
 
         if isInlineOK {
             meta["imageData"] = imageBase64
@@ -413,6 +419,7 @@ extension FirestoreManager {
 }
 
 // MARK: - Chats "gesehen" markieren (Badge zurücksetzen)
+
 extension FirestoreManager {
     /// Merkt sich, dass Chats jetzt gesehen wurden.
     /// - Parameter graceSeconds: kleiner Puffer damit Serverzeiten (updatedAt) nicht knapp hinter dem lokalen Timestamp liegen.

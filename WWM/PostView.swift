@@ -11,6 +11,9 @@ import CoreLocationUI
 import PhotosUI
 import UIKit
 
+private let kStrainsUDKey = "local_strains"
+private let kAddStrainToken = "__add_strain__"
+
 final class LocationService: NSObject, ObservableObject {
     private let manager = CLLocationManager()
     private let geocoder = CLGeocoder()
@@ -84,9 +87,19 @@ struct PostView: View {
     @State private var isSaving = false
     @State private var saveError: String? = nil
 
+    // MARK: Sorte (lokal via UserDefaults)
+
+    @State private var strains: [String] = []
+    @State private var selectedStrain: String = ""
+    @State private var lastValidSelection: String = ""
+    @State private var showAddStrainSheet = false
+    @State private var newStrainName: String = ""
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+
+                // Bild
                 Group {
                     if let img = pickedImage {
                         Image(uiImage: img)
@@ -119,6 +132,39 @@ struct PostView: View {
                     }
                 }
 
+                // Sorte
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Sorte").font(.headline)
+
+                    Picker("Sorte", selection: $selectedStrain) {
+                        // Auswahl aus lokalen Sorten
+                        ForEach(strains, id: \.self) { s in
+                            Text(s).tag(s)
+                        }
+                        // Trennlinie + „Hinzufügen…“
+                        if !strains.isEmpty { Divider() }
+                        Text("➕ Neue Sorte hinzufügen…").tag(kAddStrainToken)
+                    }
+                    .pickerStyle(.menu)
+                    .onChange(of: selectedStrain) { _, newValue in
+                        if newValue == kAddStrainToken {
+                            // zurückspringen auf vorherige, dann Sheet öffnen
+                            selectedStrain = lastValidSelection
+                            showAddStrainSheet = true
+                            newStrainName = ""
+                        } else {
+                            lastValidSelection = newValue
+                        }
+                    }
+
+                    if selectedStrain.isEmpty {
+                        Text("Bitte eine Sorte wählen oder hinzufügen.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // Beschreibung
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Beschreibung").font(.headline)
                     TextField("Was gibt’s?", text: $caption, axis: .vertical)
@@ -128,6 +174,7 @@ struct PostView: View {
                         }
                 }
 
+                // Standort
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Standort").font(.headline)
 
@@ -155,6 +202,7 @@ struct PostView: View {
                     }
                 }
 
+                // Speichern
                 Button {
                     Task { await savePost() }
                 } label: {
@@ -165,7 +213,7 @@ struct PostView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isSaving || pickedImage == nil)
+                .disabled(isSaving || pickedImage == nil || selectedStrain.isEmpty)
 
                 if let err = saveError {
                     Text(err).font(.footnote).foregroundStyle(.red)
@@ -174,7 +222,70 @@ struct PostView: View {
             .padding()
         }
         .navigationTitle("Neuer Post")
+        .onAppear { loadLocalStrains() }
+        .sheet(isPresented: $showAddStrainSheet) {
+            NavigationStack {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Neue Sorte hinzufügen")
+                        .font(.title3.weight(.semibold))
+
+                    TextField("z. B. Blue Haze", text: $newStrainName)
+                        .textInputAutocapitalization(.words)
+                        .textFieldStyle(.roundedBorder)
+
+                    Spacer()
+
+                    HStack {
+                        Button("Abbrechen") { showAddStrainSheet = false }
+                        Spacer()
+                        Button("Hinzufügen") {
+                            addNewStrain()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(newStrainName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+                .padding()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Schließen") { showAddStrainSheet = false }
+                    }
+                }
+            }
+        }
     }
+
+    // MARK: - Strain Helpers (UserDefaults)
+
+    private func loadLocalStrains() {
+        if let arr = UserDefaults.standard.array(forKey: kStrainsUDKey) as? [String],
+           !arr.isEmpty {
+            strains = arr
+        } else {
+            // ein paar Defaults
+            strains = ["Blue Haze", "Amnesia Haze", "OG Kush"]
+            UserDefaults.standard.set(strains, forKey: kStrainsUDKey)
+        }
+        selectedStrain = strains.first ?? ""
+        lastValidSelection = selectedStrain
+    }
+
+    private func addNewStrain() {
+        let clean = newStrainName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+
+        guard !clean.isEmpty else { return }
+        if !strains.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+            strains.insert(clean, at: 0)
+            UserDefaults.standard.set(strains, forKey: kStrainsUDKey)
+        }
+        selectedStrain = clean
+        lastValidSelection = clean
+        showAddStrainSheet = false
+    }
+
+    // MARK: - Bild laden & speichern
 
     private func loadPickedImage(from item: PhotosPickerItem?) async {
         guard let item else { return }
@@ -196,7 +307,6 @@ struct PostView: View {
         saveError = nil
         defer { isSaving = false }
 
-        // Für Chunking genügt ein „normales“ JPEG – nicht zwingend < 1 MiB
         guard let data = img.jpegData(compressionQuality: 0.85) else {
             saveError = "Bild konnte nicht kodiert werden."
             return
@@ -206,13 +316,17 @@ struct PostView: View {
         let lat = loc.lastLocation?.coordinate.latitude
         let lng = loc.lastLocation?.coordinate.longitude
         let address = loc.address
+        let strain = selectedStrain
 
         do {
-            try await FirestoreManager.shared.createPost(imageBase64: base64,
-                                                         caption: caption.isEmpty ? nil : caption,
-                                                         address: address,
-                                                         lat: lat,
-                                                         lng: lng)
+            try await FirestoreManager.shared.createPost(
+                imageBase64: base64,
+                caption: caption.isEmpty ? nil : caption,
+                address: address,
+                lat: lat,
+                lng: lng,
+                strain: strain     // ⬅️ NEU
+            )
             caption = ""
             pickedImage = nil
         } catch {
