@@ -96,7 +96,9 @@ struct PostView: View {
     @State private var newStrainName: String = ""
 
     var body: some View {
-        ScrollView {
+        ZStack {
+            LightLiquidBackground()
+            
             VStack(alignment: .leading, spacing: 16) {
 
                 // Bild
@@ -114,6 +116,7 @@ struct PostView: View {
                                 }
                                 .padding(8)
                             }
+                            .glassEffectWithFallback()
                     } else {
                         PhotosPicker(selection: $selectedItem, matching: .images, photoLibrary: .shared()) {
                             HStack {
@@ -129,6 +132,7 @@ struct PostView: View {
                         .onChange(of: selectedItem) { _, newItem in
                             Task { await loadPickedImage(from: newItem) }
                         }
+                        .glassEffectWithFallback()
                     }
                 }
 
@@ -144,8 +148,10 @@ struct PostView: View {
                         // Trennlinie + „Hinzufügen…“
                         if !strains.isEmpty { Divider() }
                         Text("➕ Neue Sorte hinzufügen…").tag(kAddStrainToken)
+                            .glassEffectWithFallback()
                     }
                     .pickerStyle(.menu)
+                    .glassEffectWithFallback()
                     .onChange(of: selectedStrain) { _, newValue in
                         if newValue == kAddStrainToken {
                             // zurückspringen auf vorherige, dann Sheet öffnen
@@ -159,6 +165,7 @@ struct PostView: View {
 
                     if selectedStrain.isEmpty {
                         Text("Bitte eine Sorte wählen oder hinzufügen.")
+                            .glassEffectWithFallback()
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -167,7 +174,10 @@ struct PostView: View {
                 // Beschreibung
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Beschreibung").font(.headline)
+                        .padding()
+                        .glassEffectWithFallback()
                     TextField("Was gibt’s?", text: $caption, axis: .vertical)
+                        .glassEffectWithFallback()
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: caption) { newValue, _ in
                             if newValue.count > 250 { caption = String(newValue.prefix(250)) }
@@ -177,11 +187,15 @@ struct PostView: View {
                 // Standort
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Standort").font(.headline)
+                        .padding()
+                        .glassEffectWithFallback()
 
                     Text(loc.address ?? "Adresse wird ermittelt …")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .glassEffectWithFallback()
 
                     HStack {
                         Button {
@@ -189,7 +203,7 @@ struct PostView: View {
                         } label: {
                             Label("Aktuellen Standort abrufen", systemImage: "location")
                         }
-                        .buttonStyle(.bordered)
+                        .glassButtonStyleOrFallback()
 
                         if loc.authorization == .denied || loc.authorization == .restricted {
                             Button("Einstellungen") {
@@ -197,11 +211,10 @@ struct PostView: View {
                                     UIApplication.shared.open(url)
                                 }
                             }
-                            .buttonStyle(.bordered)
                         }
                     }
                 }
-
+                
                 // Speichern
                 Button {
                     Task { await savePost() }
@@ -212,44 +225,53 @@ struct PostView: View {
                         Label("Post erstellen", systemImage: "paperplane.fill")
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .glassButtonStyleOrFallback()
                 .disabled(isSaving || pickedImage == nil || selectedStrain.isEmpty)
+
+                if let err = saveError {
+                    Text(err).font(.footnote).foregroundStyle(.red)
+                }
 
                 if let err = saveError {
                     Text(err).font(.footnote).foregroundStyle(.red)
                 }
             }
             .padding()
-        }
-        .navigationTitle("Neuer Post")
-        .onAppear { loadLocalStrains() }
-        .sheet(isPresented: $showAddStrainSheet) {
-            NavigationStack {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Neue Sorte hinzufügen")
-                        .font(.title3.weight(.semibold))
+            .padding()
+            .navigationTitle("Neuer Post")
+            .onAppear { loadLocalStrains() }
+            .sheet(isPresented: $showAddStrainSheet) {
+                NavigationStack {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Neue Sorte hinzufügen")
+                            .font(.title3.weight(.semibold))
+                            .glassEffectWithFallback()
 
-                    TextField("z. B. Blue Haze", text: $newStrainName)
-                        .textInputAutocapitalization(.words)
-                        .textFieldStyle(.roundedBorder)
+                        TextField("z. B. Blue Haze", text: $newStrainName)
+                            .textInputAutocapitalization(.words)
+                            .textFieldStyle(.roundedBorder)
+                            .glassEffectWithFallback()
 
-                    Spacer()
-
-                    HStack {
-                        Button("Abbrechen") { showAddStrainSheet = false }
                         Spacer()
-                        Button("Hinzufügen") {
-                            addNewStrain()
+
+                        HStack {
+                            Button("Abbrechen") { showAddStrainSheet = false }
+                            Spacer()
+                            Button("Hinzufügen") {
+                                addNewStrain()
+                            }
+                            .glassButtonStyleOrFallback()
+                            .disabled(newStrainName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(newStrainName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                }
-                .padding()
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Schließen") { showAddStrainSheet = false }
+                    .padding()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Schließen") { showAddStrainSheet = false }
+                                .glassButtonStyleOrFallback()
+                        }
                     }
+                    .glassEffectWithFallback()
                 }
             }
         }
@@ -334,3 +356,60 @@ struct PostView: View {
         }
     }
 }
+
+private extension View {
+    @ViewBuilder
+    func glassButtonStyleOrFallback() -> some View {
+        if #available(iOS 26.0, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonStyle(.borderedProminent) // oder .bordered, wie du willst
+        }
+    }
+    
+    @ViewBuilder
+    func glassEffectWithFallback() -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect()
+        } else {
+            self
+        }
+    }
+}
+
+struct LightLiquidBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            // Grundfläche (hell im Light Mode, leicht getönt im Dark Mode)
+            LinearGradient(
+                colors: colorScheme == .dark
+                ? [Color(red: 0.09, green: 0.11, blue: 0.12), Color(red: 0.06, green: 0.08, blue: 0.09)]
+                : [Color("#F7FFFB"), .white],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            // weiche Farbblasen – sehr zart dosiert
+            blob(color: Color("#55A630").opacity(colorScheme == .dark ? 0.18 : 0.12),
+                 size: 420, x: -140, y: -180, blur: 90)
+
+            blob(color: Color("#EF476F").opacity(colorScheme == .dark ? 0.14 : 0.10),
+                 size: 360, x: 160, y: -120, blur: 110)
+
+            blob(color: Color.blue.opacity(colorScheme == .dark ? 0.12 : 0.08),
+                 size: 460, x: 80, y: 300, blur: 130)
+        }
+    }
+
+    private func blob(color: Color, size: CGFloat, x: CGFloat, y: CGFloat, blur: CGFloat) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .blur(radius: blur)
+            .offset(x: x, y: y)
+            .allowsHitTesting(false)
+    }
+}
+

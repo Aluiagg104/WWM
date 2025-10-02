@@ -18,168 +18,43 @@ struct FeedPost: Identifiable, Hashable {
     let caption: String
     let address: String
     let createdAt: Date?
-    let strain: String            // ⬅️ NEU
+    let strain: String
 }
 
-private let kChatsLastSeenKey = "chats_last_seen_at"
+private enum MainTab: CaseIterable { case feed, profile }
+
+
+private let CONTENT_SIDE_MARGIN: CGFloat = 20
 
 struct FeedView: View {
     @State private var showAuthSheet = true
     @StateObject private var userVM = CurrentUserViewModel()
-
     @State private var posts: [FeedPost] = []
     @State private var postsListener: ListenerRegistration?
-
-    @State private var hasUnread = false
-    @State private var chatsListener: ListenerRegistration?
-    @State private var authHandle: AuthStateDidChangeListenerHandle?
-
+    @State private var tab: MainTab = .feed
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
-            Color(UIColor.systemGroupedBackground).ignoresSafeArea()
-
-            ScrollView {
-                LazyVStack(spacing: 16) {
-                    ForEach(posts) { post in
-                        VStack(alignment: .leading, spacing: 8) {
-                            // Header: Avatar, Name, Zeit
-                            HStack(spacing: 10) {
-                                Base64ImageView(
-                                    base64: post.pfpThumbBase64,
-                                    size: 36,
-                                    cornerRadius: 18
-                                )
-                                Text(post.username.isEmpty ? "Unbekannt" : post.username)
-                                    .font(.headline)
-                                    .foregroundStyle(.primary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .layoutPriority(1)
-                                Spacer(minLength: 8)
-                                if let ts = post.createdAt {
-                                    Text(RelativeDateTimeFormatter().localizedString(for: ts, relativeTo: Date()))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.8)
-                                }
-                            }
-
-                            // Sorte Badge
-                            if !post.strain.isEmpty {
-                                HStack {
-                                    Label(post.strain, systemImage: "leaf.fill")
-                                        .labelStyle(.titleAndIcon)
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(
-                                            Capsule().fill(Color(hex: "#55A630"))
-                                        )
-                                    Spacer(minLength: 0)
-                                }
-                            }
-
-                            // Bild (Preview bevorzugt)
-                            if let b64 = post.imagePreviewBase64 ?? post.imageInlineBase64,
-                               let img = UIImage.fromBase64(b64) {
-                                Image(uiImage: img)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(maxWidth: .infinity)
-                                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                                    .clipped()
-                            } else {
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color(UIColor.tertiarySystemFill))
-                                    .frame(height: 220)
-                            }
-
-                            // Caption
-                            if !post.caption.isEmpty {
-                                Text(post.caption)
-                                    .font(.body)
-                                    .foregroundStyle(.primary)
-                                    .multilineTextAlignment(.leading)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-
-                            // Adresse
-                            if !post.address.isEmpty {
-                                HStack(alignment: .top, spacing: 6) {
-                                    Image(systemName: "mappin.and.ellipse")
-                                        .foregroundStyle(.secondary)
-                                    Text(post.address)
-                                        .multilineTextAlignment(.leading)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                        .padding(12)
-                        .background(Color(UIColor.secondarySystemBackground))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color(UIColor.separator), lineWidth: 0.5)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .shadow(
-                            color: (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08)),
-                            radius: 8, x: 0, y: 4
-                        )
-                    }
+            LiquidGlassBackground()
+            Group {
+                switch tab {
+                case .feed:
+                    feedContent
+                case .profile:
+                    ProfileView(showAuthSheet: $showAuthSheet)
                 }
-                .padding()
-                .foregroundStyle(.primary)
             }
-            .background(Color.clear)
+            .animation(.spring(response: 0.35, dampingFraction: 0.9), value: tab)
         }
-        .navigationTitle("Feed")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(destination: ProfileView(showAuthSheet: $showAuthSheet)) {
-                    ZStack(alignment: .topTrailing) {
-                        Base64ImageView(
-                            base64: userVM.pfpBase64 ?? UserDefaults.standard.string(forKey: "pfpBase64"),
-                            size: 28,
-                            cornerRadius: 14
-                        )
-                        if hasUnread {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 10, height: 10)
-                                .offset(x: 3, y: -3)
-                                .accessibilityLabel("Neue Nachrichten")
-                        }
-                    }
-                }
-            }
-            ToolbarItem {
-                NavigationLink(destination: PostView()) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title)
-                        .foregroundStyle(Color(hex: "#EF476F"))
-                }
-            }
-        }
-        .toolbarBackground(Color(hex: "#55A630"), for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .navigationTitle(tab == .feed ? "Feed" : "")
+        .navigationBarTitleDisplayMode(.large)
         .onAppear {
-            showAuthSheet = Auth.auth().currentUser == nil
-            ensureLastSeenDefault()
+            showAuthSheet = (Auth.auth().currentUser == nil)
             startListeningPosts()
-            attachAuthListenerForUnread()
         }
         .onDisappear {
             stopListeningPosts()
-            stopListeningUnreadChats()
-            if let h = authHandle { Auth.auth().removeStateDidChangeListener(h) }
-            authHandle = nil
         }
         .task { await userVM.loadProfile() }
         .fullScreenCover(isPresented: $showAuthSheet) {
@@ -187,7 +62,91 @@ struct FeedView: View {
         }
     }
 
-    // MARK: - Posts
+    private var feedContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 18) {
+                ForEach(posts) { post in
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            Base64ImageView(base64: post.pfpThumbBase64, size: 36, cornerRadius: 18)
+                                .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
+                                .shadow(color: .black.opacity(0.15), radius: 3, x: 0, y: 2)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(post.username.isEmpty ? "Unbekannt" : post.username)
+                                    .font(.headline)
+                                if let ts = post.createdAt {
+                                    Text(RelativeDateTimeFormatter().localizedString(for: ts, relativeTo: Date()))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                        }
+                        if !post.strain.isEmpty {
+                            Label(post.strain, systemImage: "leaf.fill")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule()
+                                        .fill(.ultraThinMaterial)
+                                        .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 0.6))
+                                )
+                                .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
+                        }
+                        if let b64 = post.imagePreviewBase64 ?? post.imageInlineBase64,
+                           let img = UIImage.fromBase64(b64) {
+                            Image(uiImage: img)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.25), lineWidth: 0.6)
+                                )
+                                .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 6)
+                        } else {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                                .frame(height: 220)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.25), lineWidth: 0.6)
+                                )
+                        }
+                        if !post.caption.isEmpty {
+                            Text(post.caption)
+                                .font(.body)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if !post.address.isEmpty {
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "mappin.and.ellipse")
+                                Text(post.address).fixedSize(horizontal: false, vertical: true)
+                            }
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(14)
+                    .background(glassCardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22)
+                            .stroke(.white.opacity(0.3), lineWidth: 0.8)
+                    )
+                    .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
+                }
+            }
+            .padding(.horizontal, CONTENT_SIDE_MARGIN)
+            .padding(.top, 16)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private var glassCardBackground: some ShapeStyle {
+        .ultraThinMaterial
+            .shadow(.inner(color: .white.opacity(0.08), radius: 1, x: 0, y: 1))
+    }
 
     private func startListeningPosts() {
         stopListeningPosts()
@@ -208,7 +167,7 @@ struct FeedView: View {
                         caption: (d["caption"] as? String) ?? "",
                         address: (d["address"] as? String) ?? "",
                         createdAt: (d["createdAt"] as? Timestamp)?.dateValue(),
-                        strain: (d["strain"] as? String) ?? ""      // ⬅️ NEU
+                        strain: (d["strain"] as? String) ?? ""
                     )
                 }
                 self.posts = items
@@ -219,67 +178,40 @@ struct FeedView: View {
         postsListener?.remove()
         postsListener = nil
     }
-
-    // MARK: - Unread Chats Badge
-
-    private func ensureLastSeenDefault() {
-        if UserDefaults.standard.object(forKey: kChatsLastSeenKey) == nil {
-            UserDefaults.standard.set(0.0, forKey: kChatsLastSeenKey)
-        }
-    }
-
-    private func attachAuthListenerForUnread() {
-        authHandle = Auth.auth().addStateDidChangeListener { _, user in
-            stopListeningUnreadChats()
-            if user != nil {
-                startListeningUnreadChats()
-            } else {
-                hasUnread = false
-            }
-        }
-        if Auth.auth().currentUser != nil {
-            startListeningUnreadChats()
-        }
-    }
-
-    private func startListeningUnreadChats() {
-        stopListeningUnreadChats()
-        guard let uid = Auth.auth().currentUser?.uid else { return }
-
-        let lastSeenSeconds = UserDefaults.standard.object(forKey: kChatsLastSeenKey) as? Double
-        let lastSeen = Date(timeIntervalSince1970: lastSeenSeconds ?? 0)
-        let lastSeenMissing = (lastSeenSeconds == nil)
-
-        chatsListener = Firestore.firestore()
-            .collection("chats")
-            .whereField("participants", arrayContains: uid)
-            .addSnapshotListener { snap, _ in
-                let docs = snap?.documents ?? []
-                var unread = false
-                for doc in docs {
-                    let d = doc.data()
-                    let lastSender = d["lastSender"] as? String
-                    let updatedAt = (d["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
-                    if lastSender != uid {
-                        if lastSeenMissing || updatedAt > lastSeen {
-                            unread = true
-                            break
-                        }
-                    }
-                }
-                self.hasUnread = unread
-            }
-    }
-
-    private func stopListeningUnreadChats() {
-        chatsListener?.remove()
-        chatsListener = nil
-    }
 }
 
 fileprivate extension UIImage {
     static func fromBase64(_ base64: String) -> UIImage? {
         guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters) else { return nil }
         return UIImage(data: data)
+    }
+}
+
+private struct LiquidGlassBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: colorScheme == .dark
+                ? [Color.black, Color(hex: "#112318")]
+                : [Color(hex: "#F2FFF7"), Color.white],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+            blob(color: Color(hex: "#55A630").opacity(0.28), size: 420, x: -120, y: -180, blur: 80)
+            blob(color: Color(hex: "#EF476F").opacity(0.20), size: 380, x: 160, y: -140, blur: 100)
+            blob(color: Color.blue.opacity(0.16), size: 460, x: 80, y: 300, blur: 120)
+        }
+    }
+
+    private func blob(color: Color, size: CGFloat, x: CGFloat, y: CGFloat, blur: CGFloat) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .blur(radius: blur)
+            .offset(x: x, y: y)
+            .allowsHitTesting(false)
     }
 }

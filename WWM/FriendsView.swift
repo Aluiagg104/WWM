@@ -137,27 +137,30 @@ final class FriendsViewModel: ObservableObject {
 struct FriendRow: View {
     let friend: AppUser
     let unreadCount: Int
-
+    
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            HStack(spacing: 12) {
-                Base64ImageView(base64: friend.pfpData, size: 40, cornerRadius: 20)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(friend.username).font(.headline)
-                    if !friend.email.isEmpty {
-                        Text(friend.email).font(.caption).foregroundStyle(.secondary)
-                    }
+        HStack(spacing: 12) {
+            Base64ImageView(base64: friend.pfpData, size: 40, cornerRadius: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(friend.username)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                if !friend.email.isEmpty {
+                    Text(friend.email)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 8)
             }
+            
+            Spacer(minLength: 0)
+
             if unreadCount > 0 {
                 Text("\(unreadCount)")
                     .font(.caption2.weight(.bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
                     .background(Capsule().fill(Color.red))
-                    .offset(x: 6, y: -6)
                     .accessibilityLabel("\(unreadCount) neue Nachrichten")
             }
         }
@@ -170,6 +173,8 @@ struct FriendsView: View {
 
     @StateObject private var vm = FriendsViewModel()
     @StateObject private var unreadStore = UnreadPerChatStore()
+
+    @Environment(\.colorScheme) private var colorScheme
 
     // QR
     @State private var showScanner = false
@@ -195,6 +200,11 @@ struct FriendsView: View {
     // Suche
     @State private var searchText = ""
 
+    // iOS15-Fallback: ursprüngliche UITableView-Farbe merken
+    @State private var prevTableBG: UIColor? = nil
+    
+    @State private var navSelection: String? = nil
+
     var filteredFriends: [AppUser] {
         guard !searchText.isEmpty else { return vm.friends }
         let q = searchText.lowercased()
@@ -204,122 +214,19 @@ struct FriendsView: View {
     }
 
     var body: some View {
-        List {
-            // Dein Freundes-Code – groß, kopierbar, neu laden
-            Section {
-                VStack(spacing: 12) {
-                    HStack {
-                        Text("Dein Freundes-Code")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        if isLoadingFriendCode { ProgressView().scaleEffect(0.8) }
-                        Button { Task { await generateOrLoadFriendCode(force: true) } } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .help("Code neu laden/erstellen")
-                        .disabled(isLoadingFriendCode || Auth.auth().currentUser == nil)
-                    }
-
-                    HStack(spacing: 12) {
-                        Text(formatFriendCode(myFriendCode))
-                            .font(.system(size: 28, weight: .bold, design: .monospaced))
-                            .padding(.vertical, 4)
-                            .minimumScaleFactor(0.6)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        Button {
-                            guard !myFriendCode.isEmpty else { return }
-                            UIPasteboard.general.string = myFriendCode
-                            UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        } label: { Image(systemName: "doc.on.doc") }
-
-                        if !myFriendCode.isEmpty {
-                            ShareLink(items: [shareTextForCode(myFriendCode)]) {
-                                Image(systemName: "square.and.arrow.up")
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(10)
-                    .background(Color(UIColor.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(UIColor.separator), lineWidth: 0.5))
-
-                    if let friendCodeError {
-                        Text(friendCodeError)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text("Teile diesen Code oder nutze den QR-Code – andere können dich so als Freund hinzufügen.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            }
-
-            // Freunde-Liste / Empty State
-            if filteredFriends.isEmpty {
-                Section {
-                    VStack(spacing: 12) {
-                        Text(vm.friends.isEmpty ? "👋 Noch keine Freunde" : "Keine Treffer")
-                            .foregroundStyle(.secondary)
-                        HStack {
-                            Button("Freund per QR hinzufügen") { showScanner = true }
-                                .buttonStyle(.borderedProminent)
-                            Button("Freundes-ID eingeben") { showEnterCodeSheet = true }
-                                .buttonStyle(.bordered)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            } else {
-                ForEach(filteredFriends, id: \.uid) { friend in
-                    NavigationLink { ChatView(user: friend) } label: {
-                        FriendRow(friend: friend, unreadCount: unreadCount(for: friend))
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) {
-                            pendingDeletion = friend
-                            showConfirmDelete = true
-                        } label: {
-                            Label("Entfernen", systemImage: "person.crop.circle.badge.minus")
-                        }
-                    }
-                    .contextMenu {
-                        Button {
-                            UIPasteboard.general.string = friend.uid
-                        } label: {
-                            Label("UID kopieren", systemImage: "doc.on.doc")
-                        }
-                        Button {
-                            UIPasteboard.general.string = friend.username
-                        } label: {
-                            Label("Username kopieren", systemImage: "doc.on.doc")
-                        }
-                    }
-                }
-            }
-        }
+        listContent
         .navigationTitle("Deine Freunde")
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .refreshable { await generateOrLoadFriendCode(force: true) }
+        .background(AuroraRibbonsBackground(style: .auto)) // dynamisch mit System
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button { ShowFriendsView = false } label: { Label("Schließen", systemImage: "xmark") }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                // ID eingeben
                 Button { showEnterCodeSheet = true } label: {
                     Label("ID eingeben", systemImage: "number")
                 }
-
-                // QR: UID oder Kurz-ID
                 Menu {
                     if let uid = Auth.auth().currentUser?.uid {
                         NavigationLink { QRCodeView(text: uid) } label: {
@@ -327,7 +234,6 @@ struct FriendsView: View {
                         }
                     }
                     if !myFriendCode.isEmpty {
-                        // ⬇️ QR nur mit der reinen Kurz-ID (ohne # / Leerzeichen)
                         let pureCode = normalizeFriendCode(myFriendCode)
                         NavigationLink { QRCodeView(text: pureCode) } label: {
                             Label("QR – mein Code", systemImage: "qrcode.viewfinder")
@@ -336,46 +242,57 @@ struct FriendsView: View {
                 } label: {
                     Image(systemName: "qrcode")
                 }
-
-                // Direkt scannen
                 Button { showScanner = true } label: { Label("QR scannen", systemImage: "camera") }
             }
         }
+        .toolbarBackground(.ultraThinMaterial)
         .onAppear {
+            if isPreview {
+                myFriendCode = "ABCD123456"
+                return
+            }
+            guard !isPreview else { return }
             myUid = Auth.auth().currentUser?.uid ?? ""
             vm.start()
             unreadStore.start()
             Task { await generateOrLoadFriendCode(force: false) }
+
+            if #available(iOS 16.0, *) {
+                // handled by ListClearBG()
+            } else {
+                prevTableBG = UITableView.appearance().backgroundColor
+                UITableView.appearance().backgroundColor = .clear
+            }
         }
         .onDisappear {
+            guard !isPreview else { return }
             vm.stop()
             unreadStore.stop()
+            if #available(iOS 16.0, *) { } else {
+                UITableView.appearance().backgroundColor = prevTableBG
+            }
         }
+        // Restlicher Code unverändert (Scanner, Alerts, Sections etc.)
         .fullScreenCover(isPresented: $showScanner) {
             ScannerScreen { raw in
                 Task { @MainActor in
                     let scanned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                     let norm = normalizeFriendCode(scanned)
 
-                    // 1) ZUERST: Kurz-ID (z. B. ABCD234567)
                     if looksLikeFriendCode(norm) {
                         do {
                             try await FirestoreManager.shared.addFriend(byFriendCode: norm)
                             showScanner = false
                             return
-                        } catch {
-                            // fällt weiter zu UID
-                        }
+                        } catch { /* try UID next */ }
                     }
 
-                    // 2) Danach: UID / URL / JSON erkennen
                     if let uid = extractUid(from: scanned), !uid.isEmpty {
                         await vm.addFriendFromScannedValue(uid)
                         showScanner = false
                         return
                     }
 
-                    // 3) Fehler
                     scanError = "Ungültiger QR-Inhalt."
                     showScanner = false
                 }
@@ -387,19 +304,15 @@ struct FriendsView: View {
                            errorText: $codeError) { normalized in
                 Task {
                     if looksLikeFriendCode(normalized) {
-                        // klarer Kurz-ID-Fall
                         do {
                             try await FirestoreManager.shared.addFriend(byFriendCode: normalized)
                             await MainActor.run {
                                 codeInput = ""; codeError = nil; showEnterCodeSheet = false
                             }
                             return
-                        } catch {
-                            // fällt auf UID-Check
-                        }
+                        } catch { /* fall back to UID */ }
                     }
 
-                    // UID-Check
                     do {
                         guard let myUid = Auth.auth().currentUser?.uid else { return }
                         let exists = try await Firestore.firestore().collection("users").document(normalized).getDocument().exists
@@ -434,6 +347,97 @@ struct FriendsView: View {
         }
     }
 
+    // MARK: - Teil-Views (zerlegen = schnelleres Type-Checking)
+
+    private var background: some View {
+        AuroraRibbonsBackground().ignoresSafeArea()
+    }
+    
+    private let rowInsets = EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16)
+
+    // 2) Glas-Kartenhintergrund (wie bei deiner FriendCodeCard)
+    private func glassCardBG(corner: CGFloat = 16) -> some View {
+        RoundedRectangle(cornerRadius: corner, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .opacity(0.6)
+            .overlay(
+                RoundedRectangle(cornerRadius: corner, style: .continuous)
+                    .stroke(.white.opacity(0.28), lineWidth: 0.7)
+            )
+    }
+    
+    @ViewBuilder private var listContent: some View {
+        List {
+            if !myFriendCode.isEmpty {
+                Section {
+                    FriendCodeCard(
+                        code: myFriendCode,
+                        isLoading: isLoadingFriendCode,
+                        errorText: friendCodeError,
+                        onRefresh: { Task { await generateOrLoadFriendCode(force: true) } }
+                    )
+                    .padding(12)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .glassCodeCardEffectWithFallback()
+                }
+            }
+            
+            // Inhalt
+            if filteredFriends.isEmpty {
+                Section {
+                    VStack(spacing: 12) {
+                        Text(vm.friends.isEmpty ? "👋 Noch keine Freunde" : "Keine Treffer")
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Button("Freund per QR hinzufügen") { showScanner = true }
+                                .glassButtonStyleOrFallback()
+                            Button("Freundes-ID eingeben") { showEnterCodeSheet = true }
+                                .glassButtonStyleOrFallback()
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                    .padding()
+                    .glassCodeCardEffectWithFallback()
+                    .frame(alignment: .center)
+                    .frame(width: 400)
+                }
+            } else {
+                Section {
+                    ForEach(filteredFriends, id: \.uid) { friend in
+                        NavigationLink {
+                            ChatView(user: friend)
+                        } label: {
+                            FriendRow(friend: friend, unreadCount: unreadCount(for: friend))
+                                .frame(maxWidth: .infinity)
+                                .frame(minHeight: 70)
+                                .padding(.horizontal, 12)
+                                .contentShape(Rectangle())
+                        }
+                        .listRowInsets(rowInsets)
+                        .listRowSeparator(.hidden)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) { /* … */ } label: {
+                                Label("Entfernen", systemImage: "trash")
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .glassEffectWithFallback()
+                .listSectionSpacing(.compact)                   // kleiner Section-Abstand
+                .listStyle(.plain)                              // optional: generell dichter
+                .environment(\.defaultMinListRowHeight, 0)      // verhindert, dass iOS Mindesthöhe erzwingt
+                .listSectionSpacing(.compact)
+                .listRowBackground(Color.clear)
+            }
+        }
+        .listStyle(.plain)
+        .listRowInsets(rowInsets)
+        .scrollContentBackground(.hidden)
+    }
+
     // MARK: - Friend-Code laden/erstellen
 
     private func generateOrLoadFriendCode(force: Bool) async {
@@ -466,39 +470,27 @@ struct FriendsView: View {
         me < other ? "\(me)_\(other)" : "\(other)_\(me)"
     }
 
-    /// Erkennung für UID in plain / URL / JSON
     private func extractUid(from code: String) -> String? {
         let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // JSON {"uid":"..."}
         if let data = trimmed.data(using: .utf8),
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let uid = obj["uid"] as? String {
             return uid
         }
-
-        // URL …?uid=...
         if let comps = URLComponents(string: trimmed),
            let uid = comps.queryItems?.first(where: { $0.name.lowercased() == "uid" })?.value {
             return uid
         }
-
-        // Präfix "uid: ..."
         if let r = trimmed.range(of: "uid:", options: .caseInsensitive) {
             let after = String(trimmed[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
             if !after.isEmpty { return after }
         }
-
-        // Plain UID Heuristik: lang genug (z.B. 20–36), keine Leerzeichen
-        if !trimmed.contains(" "),
-           trimmed.count >= 18 {
+        if !trimmed.contains(" "), trimmed.count >= 18 {
             return trimmed
         }
-
         return nil
     }
 
-    /// Schönes Label für Anzeige: #XXXX XXXX XX
     private func formatFriendCode(_ raw: String) -> String {
         let code = raw.uppercased().replacingOccurrences(of: "#", with: "").replacingOccurrences(of: " ", with: "")
         guard !code.isEmpty else { return "–" }
@@ -515,7 +507,6 @@ struct FriendsView: View {
         "Füg mich als Freund hinzu mit meiner ID: \(formatFriendCode(code))"
     }
 
-    /// Rohcode ohne #/Spaces in Großbuchstaben
     private func normalizeFriendCode(_ raw: String) -> String {
         raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -524,12 +515,271 @@ struct FriendsView: View {
             .uppercased()
     }
 
-    /// Erkanntes Kurz-ID-Pattern: exakt 10 Zeichen aus unserem Alphabet
     private func looksLikeFriendCode(_ s: String) -> Bool {
         let n = s.uppercased().replacingOccurrences(of: "#", with: "").replacingOccurrences(of: " ", with: "")
         guard n.count == 10 else { return false }
         let allowed = Set("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         return n.allSatisfy { allowed.contains($0) }
+    }
+}
+
+// MARK: - Teil-Abschnitte für die List
+
+private struct FriendCodeSection: View {
+    let code: String
+    let isLoading: Bool
+    let errorText: String?
+    let onRefresh: () -> Void
+
+    var body: some View {
+        Section {
+            FriendCodeCard(code: code, isLoading: isLoading, errorText: errorText, onRefresh: onRefresh)
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowBackground(Color.clear)
+        }
+    }
+}
+
+private struct EmptyFriendsSection: View {
+    let hasAnyFriends: Bool
+    let onScan: () -> Void
+    let onEnterCode: () -> Void
+
+    var body: some View {
+        Section {
+            VStack(spacing: 12) {
+                Text(hasAnyFriends ? "Keine Treffer" : "👋 Noch keine Freunde")
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("Freund per QR hinzufügen", action: onScan)
+                        .buttonStyle(.borderedProminent)
+                    Button("Freundes-ID eingeben", action: onEnterCode)
+                        .buttonStyle(.bordered)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .listRowBackground(Color.clear)
+    }
+}
+
+private struct FriendsRowsSection: View {
+    let friends: [AppUser]
+    let unread: [String: Int]
+    let myUid: String
+    let onRemoveAsk: (AppUser) -> Void
+
+    var body: some View {
+        Section {
+            ForEach(friends, id: \.uid) { friend in
+                NavigationLink { ChatView(user: friend) } label: {
+                    FriendRow(friend: friend, unreadCount: unreadCount(for: friend))
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        onRemoveAsk(friend)
+                    } label: {
+                        Label("Entfernen", systemImage: "person.crop.circle.badge.minus")
+                    }
+                }
+                .contextMenu {
+                    Button {
+                        UIPasteboard.general.string = friend.uid
+                    } label: { Label("UID kopieren", systemImage: "doc.on.doc") }
+                    Button {
+                        UIPasteboard.general.string = friend.username
+                    } label: { Label("Username kopieren", systemImage: "doc.on.doc") }
+                }
+                .listRowBackground(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(.white.opacity(0.28), lineWidth: 0.7)
+                        )
+                )
+            }
+        }
+    }
+
+    private func chatIdBetween(me: String, other: String) -> String {
+        me < other ? "\(me)_\(other)" : "\(other)_\(me)"
+    }
+
+    private func unreadCount(for friend: AppUser) -> Int {
+        guard !myUid.isEmpty else { return 0 }
+        let cid = chatIdBetween(me: myUid, other: friend.uid)
+        return unread[cid] ?? 0
+    }
+}
+
+// MARK: - Karten + Hintergrund + Modifiers
+
+private struct FriendCodeCard: View {
+    let code: String
+    let isLoading: Bool
+    let errorText: String?
+    let onRefresh: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("Dein Freundes-Code")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding()
+                    .glassEffectWithFallback()
+                Spacer()
+                if isLoading { ProgressView().scaleEffect(0.8) }
+                Button(action: onRefresh) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .disabled(isLoading)
+                .glassButtonStyleOrFallback()
+            }
+            
+
+            HStack(spacing: 12) {
+                Text(formatFriendCode(code))
+                    .font(.system(size: 28, weight: .bold, design: .monospaced))
+                    .padding(.vertical, 4)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                    .padding()
+                    .glassEffectWithFallback()
+
+                Spacer().frame(width: 0)
+                
+                Button {
+                    guard !code.isEmpty else { return }
+                    UIPasteboard.general.string = code
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 20, weight: .semibold))
+                        .padding(.vertical, -5)
+                        .padding(.horizontal, -5)
+                }
+                .controlSize(.large)
+                .glassButtonStyleOrFallback()
+                
+                if !code.isEmpty {
+                    ShareLink(items: [shareTextForCode(code)]) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 20, weight: .semibold))
+                            .padding(.vertical, 5)
+                            .padding(.horizontal, 5)
+                    }
+                    .glassButtonStyleOrFallback()
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .opacity(0.6)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(.white.opacity(0.28), lineWidth: 0.7)
+            )
+
+            if let errorText, !errorText.isEmpty {
+                Text(errorText)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("Teile diesen Code oder nutze den QR-Code – andere können dich so als Freund hinzufügen.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func formatFriendCode(_ raw: String) -> String {
+        let code = raw.uppercased().replacingOccurrences(of: "#", with: "").replacingOccurrences(of: " ", with: "")
+        guard !code.isEmpty else { return "–" }
+        let chars = Array(code)
+        var parts: [String] = []
+        let cuts = [0..<min(4, chars.count),
+                    min(4, chars.count)..<min(8, chars.count),
+                    min(8, chars.count)..<min(10, chars.count)]
+        for r in cuts where r.lowerBound < r.upperBound { parts.append(String(chars[r])) }
+        return "#"+parts.joined(separator: " ")
+    }
+
+    private func shareTextForCode(_ code: String) -> String {
+        "Füg mich als Freund hinzu mit meiner ID: \(formatFriendCode(code))"
+    }
+}
+
+/// Sanfter Aurora-Look (blau/türkis/violett), bewusst **anders** als der Feed/Profile-Hintergrund.
+private struct AuroraRibbonsBackground: View {
+    enum Style { case auto, dark, light }
+    var style: Style = .auto
+
+    @Environment(\.colorScheme) private var colorScheme
+    private var isDark: Bool { style == .dark || (style == .auto && colorScheme == .dark) }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: isDark
+                ? [Color(hex: "#0A0F1E"), Color(hex: "#0B1327")]
+                : [Color(hex: "#EAF3FF"), Color.white],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            // leicht gedämpfte, dunkle Intensitäten im Dark-Case
+            ribbon(.cyan.opacity(isDark ? 0.22 : 0.35), .blue.opacity(isDark ? 0.06 : 0.10), w: 900, h: 260, x: 0,   y: -280, rot: -18, blur: 42)
+            ribbon(.purple.opacity(isDark ? 0.18 : 0.30), .clear,                               w: 780, h: 220, x: 60,  y: 40,   rot: 12,  blur: 36)
+            ribbon(.mint.opacity(isDark ? 0.20 : 0.28), .teal.opacity(isDark ? 0.06 : 0.10),   w: 900, h: 240, x: -40, y: 360,  rot: -10, blur: 46)
+
+            orb(.cyan.opacity(isDark ? 0.18 : 0.25),   size: 420, x: -160, y: -180, blur: 90)
+            orb(.purple.opacity(isDark ? 0.16 : 0.22), size: 360, x: 160,  y: -120, blur: 95)
+            orb(.indigo.opacity(isDark ? 0.14 : 0.18), size: 520, x: 100,  y: 340,  blur: 120)
+        }
+        .ignoresSafeArea()
+    }
+
+    private func ribbon(_ c1: Color, _ c2: Color, w: CGFloat, h: CGFloat, x: CGFloat, y: CGFloat, rot: Double, blur: CGFloat) -> some View {
+        Capsule(style: .continuous)
+            .fill(LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .frame(width: w, height: h)
+            .rotationEffect(.degrees(rot))
+            .offset(x: x, y: y)
+            .blur(radius: blur)
+            .blendMode(.plusLighter)
+            .allowsHitTesting(false)
+    }
+
+    private func orb(_ color: Color, size: CGFloat, x: CGFloat, y: CGFloat, blur: CGFloat) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .blur(radius: blur)
+            .offset(x: x, y: y)
+            .blendMode(.plusLighter)
+            .allowsHitTesting(false)
+    }
+}
+
+/// Versteckt den Standard-Listenhintergrund (iOS16+) mit Fallback für iOS15.
+private struct ListClearBG: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+        } else {
+            content
+                .background(Color.clear)
+        }
     }
 }
 
@@ -626,6 +876,7 @@ private struct EnterCodeSheet: View {
         }
     }
 
+    // Formatierungshilfe für die Anzeige des eigenen Codes
     private func format(_ raw: String) -> String {
         let code = raw.uppercased().replacingOccurrences(of: "#", with: "").replacingOccurrences(of: " ", with: "")
         guard !code.isEmpty else { return "–" }
@@ -637,4 +888,61 @@ private struct EnterCodeSheet: View {
         for r in cuts where r.lowerBound < r.upperBound { parts.append(String(chars[r])) }
         return "#"+parts.joined(separator: " ")
     }
+}
+
+private extension View {
+    @ViewBuilder
+    func glassButtonStyleOrFallback() -> some View {
+        if #available(iOS 26.0, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonStyle(.borderedProminent) // oder .bordered, wie du willst
+        }
+    }
+    
+    @ViewBuilder
+    func glassEffectWithFallback() -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect()
+        } else {
+            self
+        }
+    }
+    
+    @ViewBuilder
+    func glassCodeCardEffectWithFallback() -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(in: .rect(cornerRadius: 12, style: .continuous))
+        } else {
+            self
+        }
+    }
+    
+    @ViewBuilder
+    func glassCardBackground(cornerRadius: CGFloat = 12) -> some View {
+        if #available(iOS 18.0, *) {
+            self.background {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .glassEffectWithFallback()
+            }
+        } else {
+            // Fallback: Material in die Shape „einschneiden“
+            self.background(
+                .ultraThinMaterial,
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
+        }
+    }
+}
+
+#Preview {
+    NavigationStack {
+        FriendsView(
+            showAuthSheet: .constant(false),
+            ShowFriendsView: .constant(true)
+        )
+    }
+}
+private var isPreview: Bool {
+    ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
 }

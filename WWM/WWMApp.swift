@@ -15,7 +15,7 @@ struct WWMApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            StartView()
         }
     }
 }
