@@ -12,12 +12,12 @@ struct AuthenticationView: View {
         ZStack {
             Color(hex: "#1B4332")
                 .ignoresSafeArea()
-            
+
             VStack {
                 Image("Logo")
                     .resizable()
                     .scaledToFit()
-                
+
                 NavigationLink(destination: SignInView()) {
                     Text("Sign In")
                         .foregroundStyle(Color(hex: "#F8F9FA"))
@@ -27,7 +27,7 @@ struct AuthenticationView: View {
                         .background(Color(hex: "#EF476F"))
                         .cornerRadius(8)
                 }
-                
+
                 NavigationLink(destination: CreateAccountView()) {
                     Text("Create Account")
                         .foregroundStyle(Color(hex: "#F8F9FA"))
@@ -37,9 +37,9 @@ struct AuthenticationView: View {
                         .background(Color(hex: "#2B2B2B"))
                         .cornerRadius(8)
                 }
-                
+
                 Spacer()
-                
+
                 Text("18+ Community, Education, Experience")
                     .foregroundStyle(Color(hex: "#1A1A1A"))
             }

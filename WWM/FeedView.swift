@@ -43,7 +43,6 @@ struct FeedView: View {
                 .padding(.horizontal, 12)
                 .animation(.spring(response: 0.35, dampingFraction: 0.9), value: tab)
             }
-            .navigationTitle(tab == .feed ? "Feed" : "")
             .navigationBarTitleDisplayMode(.large)
             .onAppear {
                 if isRunningInPreview {

@@ -1,45 +1,32 @@
-//
-//  WWMApp.swift
-//  WWM
-//
-//  Created by F on 18.08.25.
-//
-
 import SwiftUI
 import UIKit
 import FirebaseAuth
 import FirebaseCore
 
-final class AuthViewModel: ObservableObject {
-    @Published var user: User?
-    private var handle: AuthStateDidChangeListenerHandle?
-
-    init() {
-        handle = Auth.auth().addStateDidChangeListener { _, user in
-            DispatchQueue.main.async { self.user = user }
-        }
-    }
-
-    deinit {
-        if let handle { Auth.auth().removeStateDidChangeListener(handle) }
-    }
-}
-
 @main
 struct WWMApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var authVM = AuthViewModel()
+    @StateObject private var userVM = CurrentUserViewModel()
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if authVM.user != nil {
-                    StartView()
-                } else {
-                    NavigationStack {
-                        AuthenticationView()
-                    }
-                }
+            RootSwitcher()                     // ⬅️ kein NavigationStack hier
+                .environmentObject(userVM)
+                .id(userVM.isSignedIn)         // Rebuild beim Auth-Wechsel
+                .task { await userVM.loadProfile() }
+                .task { userVM.startAuthListener() }
+        }
+    }
+}
+
+struct RootSwitcher: View {
+    @EnvironmentObject var userVM: CurrentUserViewModel
+    var body: some View {
+        if userVM.isSignedIn {
+            StartView()                        // Tabs kümmern sich selbst um Navigation
+        } else {
+            NavigationStack {                  // ⬅️ nur für Auth-Flow brauchen wir Navigation
+                AuthenticationView()
             }
         }
     }

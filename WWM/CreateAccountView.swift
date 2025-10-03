@@ -12,15 +12,19 @@ struct CreateAccountView: View {
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var username: String = ""
-    
+
     @State private var selectedItem: PhotosPickerItem? = nil
     @State private var selectedImage: UIImage? = nil
-    
+
+    // nur Logik: vermeiden, dass mehrfach geklickt wird
+    @State private var isWorking = false
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
         ZStack {
             Color(hex: "#EAEAEA")
                 .ignoresSafeArea()
-            
+
             VStack {
                 PhotosPicker(selection: $selectedItem, matching: .images) {
                     if let selectedImage {
@@ -37,36 +41,42 @@ struct CreateAccountView: View {
                 }
                 .onChange(of: selectedItem) { oldValue, newValue in
                     Task {
-                        if let data = try? await newValue?.loadTransferable(type: Data.self), let uiImage = UIImage(data: data) {
+                        if let data = try? await newValue?.loadTransferable(type: Data.self),
+                           let uiImage = UIImage(data: data) {
                             selectedImage = uiImage
                         }
                     }
                 }
                 .padding()
-                
+
                 TextField("Email", text: $email)
                     .autocorrectionDisabled(true)
                     .textInputAutocapitalization(.never)
                     .textFieldStyle(.roundedBorder)
-                
+
                 SecureField("Password", text: $password)
                     .textFieldStyle(.roundedBorder)
-                
+
                 TextField("Username", text: $username)
                     .autocorrectionDisabled(true)
                     .textInputAutocapitalization(.never)
                     .textFieldStyle(.roundedBorder)
-                
-                Spacer()
-                
-                Button {
-                    let imageToUse: UIImage = selectedImage ?? UIImage.defaultAvatar()
 
+                Spacer()
+
+                Button {
+                    guard !isWorking else { return }
+                    isWorking = true
+
+                    let imageToUse: UIImage = selectedImage ?? UIImage.defaultAvatar()
                     guard let pfpData = imageToBase64JPEG(imageToUse, quality: 0.7, maxDimension: 512) else {
+                        isWorking = false
                         return
                     }
 
+                    // Logik: Username UND pfp lokal behalten
                     UserDefaults.standard.set(pfpData, forKey: "pfpBase64")
+                    UserDefaults.standard.set(username, forKey: "username")
 
                     Task {
                         do {
@@ -77,7 +87,11 @@ struct CreateAccountView: View {
                                 username: username,
                                 pfpData: pfpData
                             )
+                            isWorking = false
+                            // Logik: nach Erfolg schließen (Root wechselt idR. über Auth-State)
+                            dismiss()
                         } catch {
+                            isWorking = false
                             print(error.localizedDescription)
                         }
                     }
@@ -100,10 +114,12 @@ struct CreateAccountView: View {
 }
 
 fileprivate extension UIImage {
-    static func defaultAvatar(side: CGFloat = 512,
-                              symbolName: String = "person.crop.circle.fill",
-                              bgColor: UIColor = .systemGray5,
-                              tintColor: UIColor = .systemGray) -> UIImage {
+    static func defaultAvatar(
+        side: CGFloat = 512,
+        symbolName: String = "person.crop.circle.fill",
+        bgColor: UIColor = .systemGray5,
+        tintColor: UIColor = .systemGray
+    ) -> UIImage {
         let size = CGSize(width: side, height: side)
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { ctx in

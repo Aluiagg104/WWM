@@ -9,7 +9,6 @@ struct ProfileView: View {
     @State private var signOutError: String?
     @State private var showFriendsView = false
     @State private var showYourPostsView = false
-    // @Environment(\.dismiss) private var dismiss // <- aktuell ungenutzt, kann weg
 
     var body: some View {
         ZStack {
@@ -81,11 +80,9 @@ struct ProfileView: View {
             .modifier(ScrollContentMargins(top: 0, horizontal: SIDE_MARGIN, bottom: 12))
         }
         .task { await userVM.loadProfile() }
-        // .onAppear { attachAuthListener() } // <- entfernen
         .fullScreenCover(isPresented: $showFriendsView) {
             NavigationStack {
-                // FriendsView(showAuthSheet: $showAuthSheet, ShowFriendsView: $showFriendsView) // <- alt
-                FriendsView(ShowFriendsView: $showFriendsView) // <- neu (Initializer in FriendsView ggf. anpassen)
+                FriendsView(ShowFriendsView: $showFriendsView)
             }
         }
         .fullScreenCover(isPresented: $showYourPostsView) {
@@ -110,7 +107,6 @@ struct ProfileView: View {
             try AuthenticationManager.shared.signOut()
             userVM.reset()
             UserDefaults.standard.removeObject(forKey: "pfpBase64")
-            // kein dismiss(), kein showAuthSheet
         } catch {
             signOutError = error.localizedDescription
         }

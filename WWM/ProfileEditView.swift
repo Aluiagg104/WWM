@@ -63,7 +63,7 @@ struct ProfileEditView: View {
                                     .shadow(radius: 3)
                             }
                             .offset(x: 44, y: 44)
-                            .onChange(of: selectedItem) { newItem in
+                            .onChange(of: selectedItem) { oldValue, newItem in
                                 Task { await loadPickedImage(newItem) }
                             }
                         }
@@ -97,7 +97,7 @@ struct ProfileEditView: View {
                                     .stroke(.white.opacity(0.28), lineWidth: 0.7)
                             )
                             .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
-                            .onChange(of: username) { new in
+                            .onChange(of: username) { oldValue, new in
                                 username = sanitizeUsername(new)
                             }
 
