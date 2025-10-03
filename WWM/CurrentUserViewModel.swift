@@ -30,3 +30,11 @@ final class CurrentUserViewModel: ObservableObject {
         }
     }
 }
+
+extension CurrentUserViewModel {
+    func reset() {
+        self.username = nil
+        self.pfpBase64 = nil
+        // ggf. weitere Felder leeren / Caches invalidieren
+    }
+}

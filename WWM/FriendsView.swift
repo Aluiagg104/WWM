@@ -168,7 +168,6 @@ struct FriendRow: View {
 }
 
 struct FriendsView: View {
-    @Binding var showAuthSheet: Bool
     @Binding var ShowFriendsView: Bool
 
     @StateObject private var vm = FriendsViewModel()
@@ -214,137 +213,151 @@ struct FriendsView: View {
     }
 
     var body: some View {
-        listContent
-        .navigationTitle("Deine Freunde")
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
-        .refreshable { await generateOrLoadFriendCode(force: true) }
-        .background(AuroraRibbonsBackground(style: .auto)) // dynamisch mit System
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { ShowFriendsView = false } label: { Label("Schließen", systemImage: "xmark") }
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Suchen", text: $searchText)
+                    .textInputAutocapitalization(.none)
+                    .autocorrectionDisabled()
             }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { showEnterCodeSheet = true } label: {
-                    Label("ID eingeben", systemImage: "number")
+            .padding(10)
+            .background(Color.clear)
+            .glassEffectWithFallback()
+            .padding(.horizontal)
+            
+            listContent
+            .navigationTitle("Deine Freunde")
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .refreshable { await generateOrLoadFriendCode(force: true) }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { ShowFriendsView = false } label: { Label("Schließen", systemImage: "xmark") }
                 }
-                Menu {
-                    if let uid = Auth.auth().currentUser?.uid {
-                        NavigationLink { QRCodeView(text: uid) } label: {
-                            Label("QR – meine UID", systemImage: "qrcode")
-                        }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { showEnterCodeSheet = true } label: {
+                        Label("ID eingeben", systemImage: "number")
                     }
-                    if !myFriendCode.isEmpty {
-                        let pureCode = normalizeFriendCode(myFriendCode)
-                        NavigationLink { QRCodeView(text: pureCode) } label: {
-                            Label("QR – mein Code", systemImage: "qrcode.viewfinder")
+                    Menu {
+                        if let uid = Auth.auth().currentUser?.uid {
+                            NavigationLink { QRCodeView(text: uid) } label: {
+                                Label("QR – meine UID", systemImage: "qrcode")
+                            }
                         }
+                        if !myFriendCode.isEmpty {
+                            let pureCode = normalizeFriendCode(myFriendCode)
+                            NavigationLink { QRCodeView(text: pureCode) } label: {
+                                Label("QR – mein Code", systemImage: "qrcode.viewfinder")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "qrcode")
                     }
-                } label: {
-                    Image(systemName: "qrcode")
+                    Button { showScanner = true } label: { Label("QR scannen", systemImage: "camera") }
                 }
-                Button { showScanner = true } label: { Label("QR scannen", systemImage: "camera") }
             }
-        }
-        .toolbarBackground(.ultraThinMaterial)
-        .onAppear {
-            if isPreview {
-                myFriendCode = "ABCD123456"
-                return
+            .toolbarBackground(.ultraThinMaterial)
+            .onAppear {
+                if isPreview {
+                    myFriendCode = "ABCD123456"
+                    return
+                }
+                guard !isPreview else { return }
+                myUid = Auth.auth().currentUser?.uid ?? ""
+                vm.start()
+                unreadStore.start()
+                Task { await generateOrLoadFriendCode(force: false) }
+                
+                if #available(iOS 16.0, *) {
+                    // handled by ListClearBG()
+                } else {
+                    prevTableBG = UITableView.appearance().backgroundColor
+                    UITableView.appearance().backgroundColor = .clear
+                }
             }
-            guard !isPreview else { return }
-            myUid = Auth.auth().currentUser?.uid ?? ""
-            vm.start()
-            unreadStore.start()
-            Task { await generateOrLoadFriendCode(force: false) }
-
-            if #available(iOS 16.0, *) {
-                // handled by ListClearBG()
-            } else {
-                prevTableBG = UITableView.appearance().backgroundColor
-                UITableView.appearance().backgroundColor = .clear
+            .onDisappear {
+                guard !isPreview else { return }
+                vm.stop()
+                unreadStore.stop()
+                if #available(iOS 16.0, *) { } else {
+                    UITableView.appearance().backgroundColor = prevTableBG
+                }
             }
-        }
-        .onDisappear {
-            guard !isPreview else { return }
-            vm.stop()
-            unreadStore.stop()
-            if #available(iOS 16.0, *) { } else {
-                UITableView.appearance().backgroundColor = prevTableBG
-            }
-        }
         // Restlicher Code unverändert (Scanner, Alerts, Sections etc.)
-        .fullScreenCover(isPresented: $showScanner) {
-            ScannerScreen { raw in
-                Task { @MainActor in
-                    let scanned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let norm = normalizeFriendCode(scanned)
-
-                    if looksLikeFriendCode(norm) {
-                        do {
-                            try await FirestoreManager.shared.addFriend(byFriendCode: norm)
+            .fullScreenCover(isPresented: $showScanner) {
+                ScannerScreen { raw in
+                    Task { @MainActor in
+                        let scanned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let norm = normalizeFriendCode(scanned)
+                        
+                        if looksLikeFriendCode(norm) {
+                            do {
+                                try await FirestoreManager.shared.addFriend(byFriendCode: norm)
+                                showScanner = false
+                                return
+                            } catch { /* try UID next */ }
+                        }
+                        
+                        if let uid = extractUid(from: scanned), !uid.isEmpty {
+                            await vm.addFriendFromScannedValue(uid)
                             showScanner = false
                             return
-                        } catch { /* try UID next */ }
-                    }
-
-                    if let uid = extractUid(from: scanned), !uid.isEmpty {
-                        await vm.addFriendFromScannedValue(uid)
-                        showScanner = false
-                        return
-                    }
-
-                    scanError = "Ungültiger QR-Inhalt."
-                    showScanner = false
-                }
-            }
-        }
-        .sheet(isPresented: $showEnterCodeSheet) {
-            EnterCodeSheet(myCode: myFriendCode,
-                           codeInput: $codeInput,
-                           errorText: $codeError) { normalized in
-                Task {
-                    if looksLikeFriendCode(normalized) {
-                        do {
-                            try await FirestoreManager.shared.addFriend(byFriendCode: normalized)
-                            await MainActor.run {
-                                codeInput = ""; codeError = nil; showEnterCodeSheet = false
-                            }
-                            return
-                        } catch { /* fall back to UID */ }
-                    }
-
-                    do {
-                        guard let myUid = Auth.auth().currentUser?.uid else { return }
-                        let exists = try await Firestore.firestore().collection("users").document(normalized).getDocument().exists
-                        if exists, normalized != myUid {
-                            try await FirestoreManager.shared.addFriend(between: myUid, and: normalized)
-                            await MainActor.run {
-                                codeInput = ""; codeError = nil; showEnterCodeSheet = false
-                            }
-                            return
                         }
-                    } catch { /* ignore */ }
-
-                    await MainActor.run {
-                        codeError = "Code/UID nicht gefunden oder bereits befreundet."
+                        
+                        scanError = "Ungültiger QR-Inhalt."
+                        showScanner = false
                     }
                 }
             }
-        }
-        .alert("Fehler", isPresented: .constant(scanError != nil)) {
-            Button("OK") { scanError = nil }
-        } message: { Text(scanError ?? "") }
-        .alert("Freund entfernen?", isPresented: $showConfirmDelete, presenting: pendingDeletion) { friend in
-            Button("Entfernen", role: .destructive) {
-                Task {
-                    await vm.removeFriend(uid: friend.uid)
-                    pendingDeletion = nil
+            .sheet(isPresented: $showEnterCodeSheet) {
+                EnterCodeSheet(myCode: myFriendCode,
+                               codeInput: $codeInput,
+                               errorText: $codeError) { normalized in
+                    Task {
+                        if looksLikeFriendCode(normalized) {
+                            do {
+                                try await FirestoreManager.shared.addFriend(byFriendCode: normalized)
+                                await MainActor.run {
+                                    codeInput = ""; codeError = nil; showEnterCodeSheet = false
+                                }
+                                return
+                            } catch { /* fall back to UID */ }
+                        }
+                        
+                        do {
+                            guard let myUid = Auth.auth().currentUser?.uid else { return }
+                            let exists = try await Firestore.firestore().collection("users").document(normalized).getDocument().exists
+                            if exists, normalized != myUid {
+                                try await FirestoreManager.shared.addFriend(between: myUid, and: normalized)
+                                await MainActor.run {
+                                    codeInput = ""; codeError = nil; showEnterCodeSheet = false
+                                }
+                                return
+                            }
+                        } catch { /* ignore */ }
+                        
+                        await MainActor.run {
+                            codeError = "Code/UID nicht gefunden oder bereits befreundet."
+                        }
+                    }
                 }
             }
-            Button("Abbrechen", role: .cancel) { pendingDeletion = nil }
-        } message: { friend in
-            Text("Möchtest du \(friend.username) wirklich aus deiner Freundesliste entfernen?")
+            .alert("Fehler", isPresented: .constant(scanError != nil)) {
+                Button("OK") { scanError = nil }
+            } message: { Text(scanError ?? "") }
+            .alert("Freund entfernen?", isPresented: $showConfirmDelete, presenting: pendingDeletion) { friend in
+                Button("Entfernen", role: .destructive) {
+                    Task {
+                        await vm.removeFriend(uid: friend.uid)
+                        pendingDeletion = nil
+                    }
+                }
+                Button("Abbrechen", role: .cancel) { pendingDeletion = nil }
+            } message: { friend in
+                Text("Möchtest du \(friend.username) wirklich aus deiner Freundesliste entfernen?")
+            }
         }
+        .background(AuroraRibbonsBackground(style: .auto))
     }
 
     // MARK: - Teil-Views (zerlegen = schnelleres Type-Checking)
@@ -729,8 +742,8 @@ private struct AuroraRibbonsBackground: View {
         ZStack {
             LinearGradient(
                 colors: isDark
-                ? [Color(hex: "#0A0F1E"), Color(hex: "#0B1327")]
-                : [Color(hex: "#EAF3FF"), Color.white],
+                ? [Color("#0A0F1E"), Color("#0B1327")]
+                : [Color("#EAF3FF"), Color.white],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -938,7 +951,6 @@ private extension View {
 #Preview {
     NavigationStack {
         FriendsView(
-            showAuthSheet: .constant(false),
             ShowFriendsView: .constant(true)
         )
     }

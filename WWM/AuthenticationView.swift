@@ -8,8 +8,6 @@
 import SwiftUI
 
 struct AuthenticationView: View {
-    @Binding var showAuthSheet: Bool
-    
     var body: some View {
         ZStack {
             Color(hex: "#1B4332")
@@ -20,7 +18,7 @@ struct AuthenticationView: View {
                     .resizable()
                     .scaledToFit()
                 
-                NavigationLink(destination: SignInView(showAuthSheet: $showAuthSheet)) {
+                NavigationLink(destination: SignInView()) {
                     Text("Sign In")
                         .foregroundStyle(Color(hex: "#F8F9FA"))
                         .font(.title)
@@ -30,7 +28,7 @@ struct AuthenticationView: View {
                         .cornerRadius(8)
                 }
                 
-                NavigationLink(destination: CreateAccountView(showAuthSheet: $showAuthSheet)) {
+                NavigationLink(destination: CreateAccountView()) {
                     Text("Create Account")
                         .foregroundStyle(Color(hex: "#F8F9FA"))
                         .font(.title2)
@@ -52,6 +50,6 @@ struct AuthenticationView: View {
 
 #Preview {
     NavigationStack {
-        AuthenticationView(showAuthSheet: .constant(true))
+        AuthenticationView()
     }
 }

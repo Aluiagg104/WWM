@@ -5,12 +5,11 @@ import UIKit
 private let SIDE_MARGIN: CGFloat = 32
 
 struct ProfileView: View {
-    @Binding var showAuthSheet: Bool
     @StateObject private var userVM = CurrentUserViewModel()
-
     @State private var signOutError: String?
-    @State private var ShowFriendsView = false
-    @State private var ShowYourPostsView = false
+    @State private var showFriendsView = false
+    @State private var showYourPostsView = false
+    // @Environment(\.dismiss) private var dismiss // <- aktuell ungenutzt, kann weg
 
     var body: some View {
         ZStack {
@@ -25,7 +24,6 @@ struct ProfileView: View {
                                 base64: userVM.pfpBase64 ?? UserDefaults.standard.string(forKey: "pfpBase64"),
                                 size: 80, cornerRadius: 40
                             )
-
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(userVM.username ?? "Username")
                                     .font(.title2.weight(.semibold))
@@ -35,13 +33,12 @@ struct ProfileView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
-
                             Spacer(minLength: 0)
                             Image(systemName: "chevron.right")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.secondary)
                         }
-                        .padding(16) // nur Innenabstand der Karte
+                        .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(glassCardBackground)
                         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -49,23 +46,28 @@ struct ProfileView: View {
                     }
                     .buttonStyle(.plain)
 
-                    // Aktionen (kein äußeres .padding mehr)
                     VStack(spacing: 12) {
-                        GlassRowButton(icon: "person.2.fill", title: "Freunde",
-                                       trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }) {
-                            ShowFriendsView = true
+                        GlassRowButton(
+                            icon: "person.2.fill",
+                            title: "Freunde",
+                            trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
+                        ) {
+                            showFriendsView = true
                         }
-                        GlassRowButton(icon: "photo", title: "Deine Beiträge",
-                                       trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }) {
-                            ShowYourPostsView = true
+                        GlassRowButton(
+                            icon: "photo",
+                            title: "Deine Beiträge",
+                            trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
+                        ) {
+                            showYourPostsView = true
                         }
-                        GlassRowButton(icon: "rectangle.portrait.and.arrow.right", title: "Abmelden", tint: .red,
-                                       trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }) {
-                            do {
-                                try AuthenticationManager.shared.signOut()
-                                UserDefaults.standard.removeObject(forKey: "pfpBase64")
-                                showAuthSheet = true
-                            } catch { signOutError = error.localizedDescription }
+                        GlassRowButton(
+                            icon: "rectangle.portrait.and.arrow.right",
+                            title: "Abmelden",
+                            tint: .red,
+                            trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
+                        ) {
+                            performSignOut()
                         }
                     }
 
@@ -79,11 +81,17 @@ struct ProfileView: View {
             .modifier(ScrollContentMargins(top: 0, horizontal: SIDE_MARGIN, bottom: 12))
         }
         .task { await userVM.loadProfile() }
-        .fullScreenCover(isPresented: $ShowFriendsView) {
-            NavigationStack { FriendsView(showAuthSheet: $showAuthSheet, ShowFriendsView: $ShowFriendsView) }
+        // .onAppear { attachAuthListener() } // <- entfernen
+        .fullScreenCover(isPresented: $showFriendsView) {
+            NavigationStack {
+                // FriendsView(showAuthSheet: $showAuthSheet, ShowFriendsView: $showFriendsView) // <- alt
+                FriendsView(ShowFriendsView: $showFriendsView) // <- neu (Initializer in FriendsView ggf. anpassen)
+            }
         }
-        .fullScreenCover(isPresented: $ShowYourPostsView) {
-            NavigationStack { YourPostsView(ShowYourPostsView: $ShowYourPostsView) }
+        .fullScreenCover(isPresented: $showYourPostsView) {
+            NavigationStack {
+                YourPostsView(ShowYourPostsView: $showYourPostsView)
+            }
         }
     }
 
@@ -91,9 +99,24 @@ struct ProfileView: View {
         .ultraThinMaterial
             .shadow(.inner(color: .white.opacity(0.08), radius: 1, x: 0, y: 1))
     }
+
+    @MainActor
+    private func performSignOut() {
+        withTransaction(Transaction(animation: .none)) {
+            showFriendsView = false
+            showYourPostsView = false
+        }
+        do {
+            try AuthenticationManager.shared.signOut()
+            userVM.reset()
+            UserDefaults.standard.removeObject(forKey: "pfpBase64")
+            // kein dismiss(), kein showAuthSheet
+        } catch {
+            signOutError = error.localizedDescription
+        }
+    }
 }
 
-// Glasige Row-Buttons: Innenabstände bleiben, erzeugen keine äußeren Ränder
 private struct GlassRowButton<Trailing: View>: View {
     let icon: String
     let title: String
@@ -108,11 +131,9 @@ private struct GlassRowButton<Trailing: View>: View {
                     .font(.system(size: 18, weight: .semibold))
                     .frame(width: 28, height: 28)
                     .foregroundStyle(tint ?? .primary)
-
                 Text(title)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(tint ?? .primary)
-
                 Spacer(minLength: 0)
                 trailing()
             }
@@ -142,11 +163,10 @@ private struct ScrollContentMargins: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 17, *) {
             content
-                .contentMargins(.top, top, for: .scrollContent)           // weiter runter
+                .contentMargins(.top, top, for: .scrollContent)
                 .contentMargins(.horizontal, horizontal, for: .scrollContent)
                 .contentMargins(.bottom, bottom, for: .scrollContent)
         } else {
-            // iOS 16 Fallback
             content
                 .padding(.top, top)
                 .padding(.horizontal, horizontal)
@@ -161,18 +181,22 @@ private struct LiquidGlassBackgroundProfile: View {
         ZStack {
             LinearGradient(
                 colors: colorScheme == .dark
-                ? [Color.black, Color(hex: "#112318")]
-                : [Color(hex: "#F2FFF7"), Color.white],
-                startPoint: .topLeading, endPoint: .bottomTrailing
+                ? [Color.black, Color("#112318")]
+                : [Color("#F2FFF7"), Color.white],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
-
-            blob(color: Color(hex: "#55A630").opacity(0.28), size: 420, x: -120, y: -180, blur: 80)
-            blob(color: Color(hex: "#EF476F").opacity(0.20), size: 380, x: 160, y: -140, blur: 100)
+            blob(color: Color("#55A630").opacity(0.28), size: 420, x: -120, y: -180, blur: 80)
+            blob(color: Color("#EF476F").opacity(0.20), size: 380, x: 160, y: -140, blur: 100)
             blob(color: Color.blue.opacity(0.16), size: 460, x: 80, y: 300, blur: 120)
         }
     }
     private func blob(color: Color, size: CGFloat, x: CGFloat, y: CGFloat, blur: CGFloat) -> some View {
-        Circle().fill(color).frame(width: size, height: size).blur(radius: blur).offset(x: x, y: y)
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .blur(radius: blur)
+            .offset(x: x, y: y)
     }
 }

@@ -10,9 +10,6 @@ import SwiftUI
 struct SignInView: View {
     @State private var email: String = ""
     @State private var password: String = ""
-    
-    @Binding var showAuthSheet: Bool
-    
     var body: some View {
         ZStack {
             Color(hex: "#EAEAEA")
@@ -33,7 +30,6 @@ struct SignInView: View {
                     Task {
                         do {
                             try await AuthenticationManager.shared.signInUser(email: email, password: password)
-                            showAuthSheet = false
                         } catch {
                             print(error.localizedDescription)
                         }

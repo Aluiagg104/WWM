@@ -12,12 +12,11 @@ import PhotosUI
 import UIKit
 
 private let kStrainsUDKey = "local_strains"
-private let kAddStrainToken = "__add_strain__"
+private let kAddStrainToken = "add_strain"
 
 final class LocationService: NSObject, ObservableObject {
     private let manager = CLLocationManager()
     private let geocoder = CLGeocoder()
-
     @Published var lastLocation: CLLocation?
     @Published var address: String?
     @Published var authorization: CLAuthorizationStatus = .notDetermined
@@ -55,7 +54,6 @@ extension LocationService: CLLocationManagerDelegate {
         guard let loc = locations.last else { return }
         lastLocation = loc
         errorMessage = nil
-
         Task {
             do {
                 let marks = try await geocoder.reverseGeocodeLocation(loc)
@@ -79,212 +77,202 @@ extension LocationService: CLLocationManagerDelegate {
 }
 
 struct PostView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var loc = LocationService()
-
     @State private var caption: String = ""
     @State private var selectedItem: PhotosPickerItem? = nil
     @State private var pickedImage: UIImage? = nil
     @State private var isSaving = false
     @State private var saveError: String? = nil
-
-    // MARK: Sorte (lokal via UserDefaults)
-
     @State private var strains: [String] = []
     @State private var selectedStrain: String = ""
     @State private var lastValidSelection: String = ""
     @State private var showAddStrainSheet = false
     @State private var newStrainName: String = ""
+    @FocusState private var captionFocused: Bool
 
     var body: some View {
         ZStack {
             LightLiquidBackground()
-            
-            VStack(alignment: .leading, spacing: 16) {
-
-                // Bild
-                Group {
-                    if let img = pickedImage {
-                        Image(uiImage: img)
-                            .resizable()
-                            .scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                            .overlay(alignment: .topTrailing) {
-                                Button { pickedImage = nil } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.title2)
-                                        .symbolRenderingMode(.hierarchical)
+            ScrollView {
+                VStack(spacing: 20) {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 10) {
+                            Menu {
+                                Picker("Sorte", selection: $selectedStrain) {
+                                    ForEach(strains, id: \.self) { s in
+                                        Text(s).tag(s)
+                                    }
+                                    if !strains.isEmpty { Divider() }
+                                    Text("➕ Neue Sorte hinzufügen…").tag(kAddStrainToken)
                                 }
-                                .padding(8)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "leaf.fill").imageScale(.small)
+                                    Text(selectedStrain.isEmpty ? "Sorte wählen" : selectedStrain).lineLimit(1)
+                                }
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(.ultraThinMaterial, in: Capsule())
                             }
-                            .glassEffectWithFallback()
-                    } else {
-                        PhotosPicker(selection: $selectedItem, matching: .images, photoLibrary: .shared()) {
-                            HStack {
-                                Image(systemName: "photo.on.rectangle")
-                                Text("Foto auswählen")
-                                Spacer()
+                            .onChange(of: selectedStrain) { _, v in
+                                if v == kAddStrainToken {
+                                    selectedStrain = lastValidSelection
+                                    showAddStrainSheet = true
+                                    newStrainName = ""
+                                } else {
+                                    lastValidSelection = v
+                                }
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(.ultraThinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                            Spacer()
+
+                            Text(loc.address ?? "Adresse wird ermittelt …")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
-                        .onChange(of: selectedItem) { _, newItem in
-                            Task { await loadPickedImage(from: newItem) }
+                        .padding(14)
+
+                        Divider().opacity(0.08)
+
+                        VStack(spacing: 0) {
+                            ZStack {
+                                if let img = pickedImage {
+                                    let corner: CGFloat = 12
+                                    Image(uiImage: img)
+                                        .resizable()
+                                        .aspectRatio(img.size, contentMode: .fit) // <- statt scaledToFill
+                                        .frame(maxWidth: .infinity)               // passt sich der verfügbaren Breite an
+                                        .frame(maxHeight: 420)                    // optionales Cap nach oben
+                                        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                                        .contentShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                                        .contextMenu { Button("Bild entfernen") { pickedImage = nil } }
+                                        .padding(.horizontal, 14)
+                                } else {
+                                    PhotosPicker(selection: $selectedItem,
+                                                 matching: .images,
+                                                 photoLibrary: .shared()) {
+                                        VStack(spacing: 10) {
+                                            Image(systemName: "photo.on.rectangle")
+                                                .font(.system(size: 30))
+                                            Text("Foto hinzufügen")
+                                                .font(.subheadline.weight(.semibold))
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 220)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [8, 6]))
+                                                .foregroundStyle(.secondary.opacity(0.6))
+                                        )
+                                        .padding(14)
+                                    }
+                                    .onChange(of: selectedItem) { _, newItem in
+                                        Task { await loadPickedImage(from: newItem) }
+                                    }
+                                }
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 8) {
+                                TextField("Schreibe eine Beschreibung …", text: $caption, axis: .vertical)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .focused($captionFocused)
+                                    .submitLabel(.done)
+                                    .background(Color.clear)
+                                    .glassCodeCardEffectWithFallback()
+                            }
+                            .padding(14)
+                            .toolbar {
+                                ToolbarItemGroup(placement: .keyboard) {
+                                    Spacer()
+                                    Button {
+                                        captionFocused = false
+                                    } label: {
+                                        Label("Fertig", systemImage: "keyboard.chevron.compact.down")
+                                    }
+                                }
+                            }
+
                         }
-                        .glassEffectWithFallback()
+                    }
+                    .background(Color.clear)
+                    .glassCodeCardEffectWithFallback()
+                    .padding()
+
+                    VStack(spacing: 10) {
+                        Button {
+                            Task { await savePost() }
+                        } label: {
+                            if isSaving {
+                                ProgressView().progressViewStyle(.circular)
+                            } else {
+                                Label("Post erstellen", systemImage: "paperplane.fill")
+                                    .padding()
+                                    .background(Color.clear)
+                                    .frame(width: 380, height: 50)
+                                    .glassCodeCardEffectWithFallback()
+                            }
+                        }
+                        .background(Color.clear)
+                        .tint(.accentColor)
+                        .disabled(isSaving || pickedImage == nil || selectedStrain.isEmpty)
+
+                        if let err = saveError {
+                            Text(err).font(.footnote).foregroundStyle(.red)
+                        }
                     }
                 }
+                .padding(.horizontal, 22)
+                .padding(.top, 16)
+            }
+        }
+        .navigationTitle("Neuer Post")
+        .onAppear {
+            loadLocalStrains()
+            loc.requestCurrentLocation()
+        }
+        .sheet(isPresented: $showAddStrainSheet) {
+            NavigationStack {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Neue Sorte hinzufügen")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
 
-                // Sorte
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Sorte").font(.headline)
-
-                    Picker("Sorte", selection: $selectedStrain) {
-                        // Auswahl aus lokalen Sorten
-                        ForEach(strains, id: \.self) { s in
-                            Text(s).tag(s)
-                        }
-                        // Trennlinie + „Hinzufügen…“
-                        if !strains.isEmpty { Divider() }
-                        Text("➕ Neue Sorte hinzufügen…").tag(kAddStrainToken)
-                            .glassEffectWithFallback()
-                    }
-                    .pickerStyle(.menu)
-                    .glassEffectWithFallback()
-                    .onChange(of: selectedStrain) { _, newValue in
-                        if newValue == kAddStrainToken {
-                            // zurückspringen auf vorherige, dann Sheet öffnen
-                            selectedStrain = lastValidSelection
-                            showAddStrainSheet = true
-                            newStrainName = ""
-                        } else {
-                            lastValidSelection = newValue
-                        }
-                    }
-
-                    if selectedStrain.isEmpty {
-                        Text("Bitte eine Sorte wählen oder hinzufügen.")
-                            .glassEffectWithFallback()
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                // Beschreibung
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Beschreibung").font(.headline)
-                        .padding()
-                        .glassEffectWithFallback()
-                    TextField("Was gibt’s?", text: $caption, axis: .vertical)
-                        .glassEffectWithFallback()
+                    TextField("z. B. Blue Haze", text: $newStrainName)
+                        .textInputAutocapitalization(.words)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: caption) { newValue, _ in
-                            if newValue.count > 250 { caption = String(newValue.prefix(250)) }
-                        }
-                }
+                        .foregroundStyle(.primary)
 
-                // Standort
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Standort").font(.headline)
-                        .padding()
-                        .glassEffectWithFallback()
-
-                    Text(loc.address ?? "Adresse wird ermittelt …")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                        .glassEffectWithFallback()
+                    Spacer()
 
                     HStack {
-                        Button {
-                            loc.requestCurrentLocation()
-                        } label: {
-                            Label("Aktuellen Standort abrufen", systemImage: "location")
-                        }
-                        .glassButtonStyleOrFallback()
-
-                        if loc.authorization == .denied || loc.authorization == .restricted {
-                            Button("Einstellungen") {
-                                if let url = URL(string: UIApplication.openSettingsURLString) {
-                                    UIApplication.shared.open(url)
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Speichern
-                Button {
-                    Task { await savePost() }
-                } label: {
-                    if isSaving {
-                        ProgressView().progressViewStyle(.circular)
-                    } else {
-                        Label("Post erstellen", systemImage: "paperplane.fill")
-                    }
-                }
-                .glassButtonStyleOrFallback()
-                .disabled(isSaving || pickedImage == nil || selectedStrain.isEmpty)
-
-                if let err = saveError {
-                    Text(err).font(.footnote).foregroundStyle(.red)
-                }
-
-                if let err = saveError {
-                    Text(err).font(.footnote).foregroundStyle(.red)
-                }
-            }
-            .padding()
-            .padding()
-            .navigationTitle("Neuer Post")
-            .onAppear { loadLocalStrains() }
-            .sheet(isPresented: $showAddStrainSheet) {
-                NavigationStack {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Neue Sorte hinzufügen")
-                            .font(.title3.weight(.semibold))
-                            .glassEffectWithFallback()
-
-                        TextField("z. B. Blue Haze", text: $newStrainName)
-                            .textInputAutocapitalization(.words)
-                            .textFieldStyle(.roundedBorder)
-                            .glassEffectWithFallback()
-
+                        Button("Abbrechen") { showAddStrainSheet = false }
                         Spacer()
-
-                        HStack {
-                            Button("Abbrechen") { showAddStrainSheet = false }
-                            Spacer()
-                            Button("Hinzufügen") {
-                                addNewStrain()
-                            }
+                        Button("Hinzufügen") { addNewStrain() }
                             .glassButtonStyleOrFallback()
+                            .tint(.accentColor)
                             .disabled(newStrainName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
                     }
-                    .padding()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Schließen") { showAddStrainSheet = false }
-                                .glassButtonStyleOrFallback()
-                        }
+                }
+                .padding()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Schließen") { showAddStrainSheet = false }
+                            .glassButtonStyleOrFallback()
+                            .tint(.accentColor)
                     }
-                    .glassEffectWithFallback()
                 }
             }
         }
     }
 
-    // MARK: - Strain Helpers (UserDefaults)
-
     private func loadLocalStrains() {
-        if let arr = UserDefaults.standard.array(forKey: kStrainsUDKey) as? [String],
-           !arr.isEmpty {
+        if let arr = UserDefaults.standard.array(forKey: kStrainsUDKey) as? [String], !arr.isEmpty {
             strains = arr
         } else {
-            // ein paar Defaults
             strains = ["Blue Haze", "Amnesia Haze", "OG Kush"]
             UserDefaults.standard.set(strains, forKey: kStrainsUDKey)
         }
@@ -296,7 +284,6 @@ struct PostView: View {
         let clean = newStrainName
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\n", with: " ")
-
         guard !clean.isEmpty else { return }
         if !strains.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
             strains.insert(clean, at: 0)
@@ -307,15 +294,11 @@ struct PostView: View {
         showAddStrainSheet = false
     }
 
-    // MARK: - Bild laden & speichern
-
     private func loadPickedImage(from item: PhotosPickerItem?) async {
         guard let item else { return }
         do {
-            if let data = try await item.loadTransferable(type: Data.self),
-               let uiImage = UIImage(data: data) {
-                // Vorab leicht verkleinern (Performance & geringere Chunk-Anzahl)
-                let downsized = uiImage.downscaledToFit(maxPixel: 2400)
+            if let data = try await item.loadTransferable(type: Data.self) {
+                let downsized = await downscaleImageData(data, maxDimension: 2400)
                 await MainActor.run { pickedImage = downsized }
             }
         } catch {
@@ -325,15 +308,18 @@ struct PostView: View {
 
     private func savePost() async {
         guard let img = pickedImage else { return }
-        isSaving = true
-        saveError = nil
-        defer { isSaving = false }
+        await MainActor.run {
+            isSaving = true
+            saveError = nil
+        }
+        defer {
+            Task { await MainActor.run { isSaving = false } }
+        }
 
-        guard let data = img.jpegData(compressionQuality: 0.85) else {
-            saveError = "Bild konnte nicht kodiert werden."
+        guard let base64 = await makeBase64JPEG(from: img, quality: 0.85) else {
+            await MainActor.run { saveError = "Bild konnte nicht kodiert werden." }
             return
         }
-        let base64 = data.base64EncodedString()
 
         let lat = loc.lastLocation?.coordinate.latitude
         let lng = loc.lastLocation?.coordinate.longitude
@@ -347,12 +333,53 @@ struct PostView: View {
                 address: address,
                 lat: lat,
                 lng: lng,
-                strain: strain     // ⬅️ NEU
+                strain: strain
             )
-            caption = ""
-            pickedImage = nil
+            await MainActor.run {
+                caption = ""
+                pickedImage = nil
+            }
         } catch {
-            saveError = "Speichern fehlgeschlagen: \(error.localizedDescription)"
+            await MainActor.run { saveError = "Speichern fehlgeschlagen: \(error.localizedDescription)" }
+        }
+    }
+
+    private func downscaleImageData(_ data: Data, maxDimension: CGFloat) async -> UIImage? {
+        await withCheckedContinuation { (cont: CheckedContinuation<UIImage?, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let uiImage = UIImage(data: data) else {
+                    cont.resume(returning: nil)
+                    return
+                }
+                let scaled = scaleImage(uiImage, maxDimension: maxDimension)
+                cont.resume(returning: scaled)
+            }
+        }
+    }
+
+    private func makeBase64JPEG(from image: UIImage, quality: CGFloat) async -> String? {
+        await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let data = image.jpegData(compressionQuality: quality) else {
+                    cont.resume(returning: nil)
+                    return
+                }
+                let base64 = data.base64EncodedString()
+                cont.resume(returning: base64)
+            }
+        }
+    }
+
+    private func scaleImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return image }
+        let scale = min(maxDimension / max(size.width, size.height), 1)
+        let newSize = CGSize(width: floor(size.width * scale), height: floor(size.height * scale))
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = image.scale
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
         }
     }
 }
@@ -363,10 +390,10 @@ private extension View {
         if #available(iOS 26.0, *) {
             self.buttonStyle(.glass)
         } else {
-            self.buttonStyle(.borderedProminent) // oder .bordered, wie du willst
+            self.buttonStyle(.borderedProminent)
         }
     }
-    
+
     @ViewBuilder
     func glassEffectWithFallback() -> some View {
         if #available(iOS 26.0, *) {
@@ -382,22 +409,20 @@ struct LightLiquidBackground: View {
 
     var body: some View {
         ZStack {
-            // Grundfläche (hell im Light Mode, leicht getönt im Dark Mode)
             LinearGradient(
                 colors: colorScheme == .dark
-                ? [Color(red: 0.09, green: 0.11, blue: 0.12), Color(red: 0.06, green: 0.08, blue: 0.09)]
-                : [Color("#F7FFFB"), .white],
-                startPoint: .topLeading, endPoint: .bottomTrailing
+                    ? [Color(red: 0.09, green: 0.11, blue: 0.12),
+                       Color(red: 0.06, green: 0.08, blue: 0.09)]
+                    : [Color("#F7FFFB"), .white],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
 
-            // weiche Farbblasen – sehr zart dosiert
             blob(color: Color("#55A630").opacity(colorScheme == .dark ? 0.18 : 0.12),
                  size: 420, x: -140, y: -180, blur: 90)
-
             blob(color: Color("#EF476F").opacity(colorScheme == .dark ? 0.14 : 0.10),
                  size: 360, x: 160, y: -120, blur: 110)
-
             blob(color: Color.blue.opacity(colorScheme == .dark ? 0.12 : 0.08),
                  size: 460, x: 80, y: 300, blur: 130)
         }
@@ -413,3 +438,17 @@ struct LightLiquidBackground: View {
     }
 }
 
+fileprivate extension View {
+    @ViewBuilder
+    func glassCodeCardEffectWithFallback() -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(in: .rect(cornerRadius: 25, style: .continuous))
+        } else {
+            self
+        }
+    }
+}
+
+#Preview {
+    PostView()
+}

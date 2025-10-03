@@ -45,6 +45,17 @@ struct PostCardView: View {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func glassCodeCardEffectWithFallback() -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(in: .rect(cornerRadius: 12, style: .continuous))
+        } else {
+            self
+        }
+    }
+}
+
 #Preview {
     PostCardView(
         place: "Ort",

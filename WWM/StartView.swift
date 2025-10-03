@@ -8,8 +8,6 @@
 import SwiftUI
 
 struct StartView: View {
-    @State private var showAuthSheet = false
-    
     var body: some View {
         TabView {
             Tab("Feed", systemImage: "house.fill") {
@@ -26,7 +24,7 @@ struct StartView: View {
             }
             Tab("Profil", systemImage: "person.crop.circle.fill") {
                 NavigationStack {
-                    ProfileView(showAuthSheet: $showAuthSheet)
+                    ProfileView()
                         .navigationTitle("Profil")
                 }
             }

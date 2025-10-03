@@ -16,8 +16,6 @@ struct CreateAccountView: View {
     @State private var selectedItem: PhotosPickerItem? = nil
     @State private var selectedImage: UIImage? = nil
     
-    @Binding var showAuthSheet: Bool
-    
     var body: some View {
         ZStack {
             Color(hex: "#EAEAEA")
@@ -79,7 +77,6 @@ struct CreateAccountView: View {
                                 username: username,
                                 pfpData: pfpData
                             )
-                            showAuthSheet = false
                         } catch {
                             print(error.localizedDescription)
                         }
