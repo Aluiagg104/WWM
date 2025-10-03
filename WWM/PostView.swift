@@ -21,6 +21,8 @@ final class LocationService: NSObject, ObservableObject {
     @Published var address: String?
     @Published var authorization: CLAuthorizationStatus = .notDetermined
     @Published var errorMessage: String?
+    @Namespace private var glassNS
+    @FocusState private var captionFocused: Bool
 
     override init() {
         super.init()
@@ -89,147 +91,165 @@ struct PostView: View {
     @State private var lastValidSelection: String = ""
     @State private var showAddStrainSheet = false
     @State private var newStrainName: String = ""
-    @FocusState private var captionFocused: Bool
+    @FocusState private var captionFocused: Bool            // <- wichtig
+    @Namespace private var glassNS
 
     var body: some View {
         ZStack {
             LightLiquidBackground()
+
             ScrollView {
                 VStack(spacing: 20) {
-                    VStack(spacing: 0) {
-                        HStack(spacing: 10) {
-                            Menu {
-                                Picker("Sorte", selection: $selectedStrain) {
-                                    ForEach(strains, id: \.self) { s in
-                                        Text(s).tag(s)
-                                    }
-                                    if !strains.isEmpty { Divider() }
-                                    Text("➕ Neue Sorte hinzufügen…").tag(kAddStrainToken)
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "leaf.fill").imageScale(.small)
-                                    Text(selectedStrain.isEmpty ? "Sorte wählen" : selectedStrain).lineLimit(1)
-                                }
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(.ultraThinMaterial, in: Capsule())
-                            }
-                            .onChange(of: selectedStrain) { _, v in
-                                if v == kAddStrainToken {
-                                    selectedStrain = lastValidSelection
-                                    showAddStrainSheet = true
-                                    newStrainName = ""
-                                } else {
-                                    lastValidSelection = v
-                                }
-                            }
 
-                            Spacer()
-
-                            Text(loc.address ?? "Adresse wird ermittelt …")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        .padding(14)
-
-                        Divider().opacity(0.08)
-
+                    // ——— Card 1: Meta (Sorte + Adresse) + Bild + Caption ———
+                    GlassCard {
                         VStack(spacing: 0) {
-                            ZStack {
-                                if let img = pickedImage {
-                                    let corner: CGFloat = 12
-                                    Image(uiImage: img)
-                                        .resizable()
-                                        .aspectRatio(img.size, contentMode: .fit) // <- statt scaledToFill
-                                        .frame(maxWidth: .infinity)               // passt sich der verfügbaren Breite an
-                                        .frame(maxHeight: 420)                    // optionales Cap nach oben
-                                        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-                                        .contentShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-                                        .contextMenu { Button("Bild entfernen") { pickedImage = nil } }
-                                        .padding(.horizontal, 14)
-                                } else {
-                                    PhotosPicker(selection: $selectedItem,
-                                                 matching: .images,
-                                                 photoLibrary: .shared()) {
-                                        VStack(spacing: 10) {
-                                            Image(systemName: "photo.on.rectangle")
-                                                .font(.system(size: 30))
-                                            Text("Foto hinzufügen")
-                                                .font(.subheadline.weight(.semibold))
-                                        }
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: 220)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 12)
-                                                .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [8, 6]))
-                                                .foregroundStyle(.secondary.opacity(0.6))
-                                        )
-                                        .padding(14)
-                                    }
-                                    .onChange(of: selectedItem) { _, newItem in
-                                        Task { await loadPickedImage(from: newItem) }
-                                    }
-                                }
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 8) {
-                                TextField("Schreibe eine Beschreibung …", text: $caption, axis: .vertical)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 12)
-                                    .focused($captionFocused)
-                                    .submitLabel(.done)
-                                    .background(Color.clear)
-                                    .glassCodeCardEffectWithFallback()
+
+                            // Kopfzeile: Sorte + Adresse
+                            HStack(spacing: 10) {
+                                StrainPickerPill(
+                                    strains: $strains,
+                                    selectedStrain: $selectedStrain,
+                                    lastValidSelection: $lastValidSelection,
+                                    showAddStrainSheet: $showAddStrainSheet,
+                                    newStrainName: $newStrainName
+                                )
+                                Spacer()
+                                Text(loc.address ?? "Adresse wird ermittelt …")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                             }
                             .padding(14)
-                            .toolbar {
-                                ToolbarItemGroup(placement: .keyboard) {
-                                    Spacer()
-                                    Button {
-                                        captionFocused = false
-                                    } label: {
-                                        Label("Fertig", systemImage: "keyboard.chevron.compact.down")
+
+                            Divider().opacity(0.08)
+
+                            // Bild + Caption
+                            VStack(spacing: 14) {
+
+                                // Bildbereich
+                                ZStack {
+                                    if let img = pickedImage {
+                                        let corner: CGFloat = 12
+                                        Image(uiImage: img)
+                                            .resizable()
+                                            .aspectRatio(img.size, contentMode: .fit)
+                                            .frame(maxWidth: .infinity)
+                                            .frame(maxHeight: 420)
+                                            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                                            .contentShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                                            .contextMenu { Button("Bild entfernen") { pickedImage = nil } }
+                                            .padding(.horizontal, 14)
+                                    } else {
+                                        GlassCard(cornerRadius: 12) {
+                                            PhotosPicker(selection: $selectedItem,
+                                                         matching: .images,
+                                                         photoLibrary: .shared()) {
+                                                VStack(spacing: 10) {
+                                                    Image(systemName: "photo.on.rectangle")
+                                                        .font(.system(size: 30, weight: .semibold))
+                                                    Text("Foto hinzufügen")
+                                                        .font(.subheadline.weight(.semibold))
+                                                }
+                                                .frame(maxWidth: .infinity)
+                                                .frame(height: 220)
+                                                .contentShape(Rectangle())
+                                            }
+                                            .onChange(of: selectedItem) { _, newItem in
+                                                Task { await loadPickedImage(from: newItem) }
+                                            }
+                                        }
+                                        .padding(.horizontal, 14)
                                     }
                                 }
-                            }
 
+                                // Caption-Feld (echtes Glas + Fallback)
+                                if #available(iOS 26.0, *) {
+                                    GlassEffectContainer {
+                                        TextField("Schreibe eine Beschreibung …",
+                                                  text: $caption,
+                                                  axis: .vertical)
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 12)
+                                            .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
+                                            .foregroundStyle(.primary)
+                                            .focused($captionFocused)          // <- Fokus anbinden
+                                            .submitLabel(.done)
+                                    }
+                                    .glassEffect(.regular.interactive(),
+                                                 in: .rect(cornerRadius: 12, style: .continuous))
+                                    .glassEffectID("captionField", in: glassNS)
+                                    .padding(.horizontal, 14)
+                                } else {
+                                    TextField("Schreibe eine Beschreibung …",
+                                              text: $caption,
+                                              axis: .vertical)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 12)
+                                        .focused($captionFocused)              // <- Fokus anbinden
+                                        .submitLabel(.done)
+                                        .background(.ultraThinMaterial.opacity(0.55),
+                                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(.white.opacity(0.28), lineWidth: 0.7))
+                                        .padding(.horizontal, 14)
+                                }
+                            }
+                            .padding(.vertical, 14)
                         }
                     }
-                    .background(Color.clear)
-                    .glassCodeCardEffectWithFallback()
-                    .padding()
+                    .padding(.horizontal, 22)
+                    .padding(.top, 4)
 
-                    VStack(spacing: 10) {
-                        Button {
-                            Task { await savePost() }
-                        } label: {
+                    // ——— Card 2: Aktionen ———
+                    GlassCard {
+                        VStack(spacing: 10) {
+                            if #available(iOS 26.0, *) {
+                                Button {
+                                    Task { await savePost() }
+                                } label: {
+                                    Label("Post erstellen", systemImage: "paperplane.fill")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .disabled(isSaving || pickedImage == nil || selectedStrain.isEmpty)
+                            } else {
+                                Button {
+                                    Task { await savePost() }
+                                } label: {
+                                    Label("Post erstellen", systemImage: "paperplane.fill")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(isSaving || pickedImage == nil || selectedStrain.isEmpty)
+                            }
+
                             if isSaving {
                                 ProgressView().progressViewStyle(.circular)
-                            } else {
-                                Label("Post erstellen", systemImage: "paperplane.fill")
-                                    .padding()
-                                    .background(Color.clear)
-                                    .frame(width: 380, height: 50)
-                                    .glassCodeCardEffectWithFallback()
+                            }
+
+                            if let err = saveError {
+                                Text(err).font(.footnote).foregroundStyle(.red)
                             }
                         }
-                        .background(Color.clear)
-                        .tint(.accentColor)
-                        .disabled(isSaving || pickedImage == nil || selectedStrain.isEmpty)
-
-                        if let err = saveError {
-                            Text(err).font(.footnote).foregroundStyle(.red)
-                        }
+                        .padding(10)
                     }
+                    .padding(.horizontal, 22)
                 }
-                .padding(.horizontal, 22)
-                .padding(.top, 16)
+                .padding(.bottom, 24)
             }
         }
         .navigationTitle("Neuer Post")
+        .toolbar {
+            // erscheint direkt über der Tastatur
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button {
+                    captionFocused = false        // Fokus weg -> Tastatur schließt
+                } label: {
+                    Label("Fertig", systemImage: "keyboard.chevron.compact.down")
+                }
+            }
+        }
         .onAppear {
             loadLocalStrains()
             loc.requestCurrentLocation()
@@ -241,28 +261,32 @@ struct PostView: View {
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.primary)
 
-                    TextField("z. B. Blue Haze", text: $newStrainName)
-                        .textInputAutocapitalization(.words)
-                        .textFieldStyle(.roundedBorder)
-                        .foregroundStyle(.primary)
+                    GlassCard(cornerRadius: 12) {
+                        TextField("z. B. Blue Haze", text: $newStrainName)
+                            .textInputAutocapitalization(.words)
+                            .padding(10)
+                    }
 
                     Spacer()
 
                     HStack {
                         Button("Abbrechen") { showAddStrainSheet = false }
                         Spacer()
-                        Button("Hinzufügen") { addNewStrain() }
-                            .glassButtonStyleOrFallback()
-                            .tint(.accentColor)
-                            .disabled(newStrainName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if #available(iOS 26.0, *) {
+                            Button("Hinzufügen") { addNewStrain() }
+                                .buttonStyle(.glass)
+                                .disabled(newStrainName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        } else {
+                            Button("Hinzufügen") { addNewStrain() }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(newStrainName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
                     }
                 }
                 .padding()
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Schließen") { showAddStrainSheet = false }
-                            .glassButtonStyleOrFallback()
-                            .tint(.accentColor)
                     }
                 }
             }
@@ -384,25 +408,98 @@ struct PostView: View {
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func glassButtonStyleOrFallback() -> some View {
-        if #available(iOS 26.0, *) {
-            self.buttonStyle(.glass)
-        } else {
-            self.buttonStyle(.borderedProminent)
-        }
-    }
+// MARK: - Strain Picker Pill (echtes Glas + Fallback)
 
-    @ViewBuilder
-    func glassEffectWithFallback() -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect()
-        } else {
-            self
+private struct StrainPickerPill: View {
+    @Binding var strains: [String]
+    @Binding var selectedStrain: String
+    @Binding var lastValidSelection: String
+    @Binding var showAddStrainSheet: Bool
+    @Binding var newStrainName: String
+
+    var body: some View {
+        Menu {
+            Picker("Sorte", selection: $selectedStrain) {
+                ForEach(strains, id: \.self) { s in
+                    Text(s).tag(s)
+                }
+                if !strains.isEmpty { Divider() }
+                Text("➕ Neue Sorte hinzufügen…").tag(kAddStrainToken)
+            }
+        } label: {
+            if #available(iOS 26.0, *) {
+                GlassEffectContainer {
+                    HStack(spacing: 8) {
+                        Image(systemName: "leaf.fill").imageScale(.small)
+                        Text(selectedStrain.isEmpty ? "Sorte wählen" : selectedStrain)
+                            .lineLimit(1)
+                    }
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassEffect(.regular, in: .capsule)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "leaf.fill").imageScale(.small)
+                    Text(selectedStrain.isEmpty ? "Sorte wählen" : selectedStrain)
+                        .lineLimit(1)
+                }
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 0.6))
+            }
+        }
+        .onChange(of: selectedStrain) { _, v in
+            if v == kAddStrainToken {
+                selectedStrain = lastValidSelection
+                showAddStrainSheet = true
+                newStrainName = ""
+            } else {
+                lastValidSelection = v
+            }
         }
     }
 }
+
+// MARK: - Reusable Glass Card
+
+private struct GlassCard<Content: View>: View {
+    var cornerRadius: CGFloat = 20
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        Group {
+            if #available(iOS 26.0, *) {
+                GlassEffectContainer {
+                    VStack(spacing: 0) {
+                        content()
+                    }
+                    .padding(14)
+                    .glassEffect(.regular.interactive(),
+                                 in: .rect(cornerRadius: cornerRadius, style: .continuous))
+                }
+            } else {
+                VStack(spacing: 0) {
+                    content()
+                }
+                .padding(14)
+                .background(
+                    .ultraThinMaterial.opacity(0.55),
+                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(.white.opacity(0.28), lineWidth: 0.7)
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Background
 
 struct LightLiquidBackground: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -438,17 +535,17 @@ struct LightLiquidBackground: View {
     }
 }
 
-fileprivate extension View {
+private extension View {
     @ViewBuilder
-    func glassCodeCardEffectWithFallback() -> some View {
+    func glassFieldFallback(cornerRadius: CGFloat = 12) -> some View {
         if #available(iOS 26.0, *) {
-            self.glassEffect(in: .rect(cornerRadius: 25, style: .continuous))
+            self
         } else {
             self
+                .background(.ultraThinMaterial.opacity(0.55),
+                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(.white.opacity(0.28), lineWidth: 0.7))
         }
     }
-}
-
-#Preview {
-    PostView()
 }

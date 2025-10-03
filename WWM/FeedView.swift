@@ -152,7 +152,8 @@ private struct FeedPostCard: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // Inhalt einmal definieren
+        let content = VStack(alignment: .leading, spacing: 12) {
             header
             strainPill
             postImage
@@ -160,7 +161,25 @@ private struct FeedPostCard: View {
             address
         }
         .padding(14)
-        .glassCodeCardEffectWithFallback()
+
+        // ECHTES Glas ab iOS 26, sonst Material-Fallback
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer {
+                content
+                    .glassEffect(.regular.interactive(),
+                                 in: .rect(cornerRadius: 12, style: .continuous))
+            }
+        } else {
+            content
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(.ultraThinMaterial).opacity(0.55)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(.white.opacity(0.28), lineWidth: 0.7)
+                )
+        }
     }
 
     private var header: some View {
@@ -183,16 +202,26 @@ private struct FeedPostCard: View {
 
     @ViewBuilder private var strainPill: some View {
         if !post.strain.isEmpty {
-            Label(post.strain, systemImage: "leaf.fill")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(.ultraThinMaterial)
-                        .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 0.6))
-                )
-                .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
+            if #available(iOS 26.0, *) {
+                GlassEffectContainer {
+                    Label(post.strain, systemImage: "leaf.fill")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .glassEffect(.regular, in: .capsule)
+                }
+            } else {
+                Label(post.strain, systemImage: "leaf.fill")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(.ultraThinMaterial)
+                            .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 0.6))
+                    )
+                    .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
+            }
         }
     }
 
@@ -201,12 +230,13 @@ private struct FeedPostCard: View {
            let img = UIImage.fromBase64(b64) {
             Image(uiImage: img)
                 .resizable()
-                .aspectRatio(img.size, contentMode: .fit)  // verhindert Überlauf
+                .aspectRatio(img.size, contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: corner).stroke(.white.opacity(0.25), lineWidth: 0.6))
                 .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 6)
         } else {
+            // Placeholder bleibt Material, das passt optisch unter Glas
             RoundedRectangle(cornerRadius: corner, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .frame(height: 220)

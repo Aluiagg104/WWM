@@ -10,6 +10,95 @@ import UIKit
 
 private let kChatsLastSeenKey = "chats_last_seen_at"
 
+@available(iOS 26.0, *)
+struct BottomGlassSearchBar: View {
+    @Binding var text: String
+    @State private var isSearching = false
+    @FocusState private var focused: Bool
+    @Namespace private var glassNS
+
+    var body: some View {
+        ZStack { Color.clear } // Platzhalter für deinen Content
+            // TOP: aufgeklappte Suchleiste (nur wenn aktiv)
+            .safeAreaInset(edge: .top) {
+                if isSearching {
+                    GlassEffectContainer(spacing: 0) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                            TextField("Suchen", text: $text)
+                                .focused($focused)
+                                .textInputAutocapitalization(.none)
+                                .autocorrectionDisabled()
+                                .submitLabel(.search)
+
+                            if !text.isEmpty {
+                                Button { text = "" } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            Button("Abbrechen") {
+                                withAnimation(.snappy) { isSearching = false }
+                                focused = false
+                            }
+                            .font(.body.weight(.semibold))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        // echtes iOS-26-Glas:
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .glassEffectID("search", in: glassNS)
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+
+            // BOTTOM: kompakte Such-Pill (nur wenn inaktiv)
+            .safeAreaInset(edge: .bottom) {
+                if !isSearching {
+                    GlassEffectContainer {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                            Text("Suchen")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(.capsule)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .glassEffectID("search", in: glassNS)
+                        .onTapGesture {
+                            withAnimation(.snappy) { isSearching = true }
+                            DispatchQueue.main.async { focused = true }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                }
+            }
+    }
+}
+
+fileprivate func formatFriendCode(_ raw: String) -> String {
+    let code = raw.uppercased().replacingOccurrences(of: "#", with: "").replacingOccurrences(of: " ", with: "")
+    guard !code.isEmpty else { return "–" }
+    let chars = Array(code)
+    var parts: [String] = []
+    let cuts = [0..<min(4, chars.count),
+                min(4, chars.count)..<min(8, chars.count),
+                min(8, chars.count)..<min(10, chars.count)]
+    for r in cuts where r.lowerBound < r.upperBound { parts.append(String(chars[r])) }
+    return "#"+parts.joined(separator: " ")
+}
+
+fileprivate func shareTextForCode(_ code: String) -> String {
+    "Füg mich als Freund hinzu mit meiner ID: \(formatFriendCode(code))"
+}
+
 @MainActor
 final class UnreadPerChatStore: ObservableObject {
     @Published var counts: [String: Int] = [:]
@@ -167,9 +256,46 @@ struct FriendRow: View {
     }
 }
 
+// 1) Kleiner Wrapper für echten Glass-Effekt + Fallback
+private struct GlassRow<Content: View>: View {
+    let cornerRadius: CGFloat
+    let content: () -> Content
+    init(cornerRadius: CGFloat = 12, @ViewBuilder content: @escaping () -> Content) {
+        self.cornerRadius = cornerRadius
+        self.content = content
+    }
+    var body: some View {
+        Group {
+            if #available(iOS 26.0, *) {
+                GlassEffectContainer {
+                    content()
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+                        .glassEffect(.regular.interactive(),
+                                     in: .rect(cornerRadius: cornerRadius, style: .continuous))
+                }
+            } else {
+                content()
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(.ultraThinMaterial).opacity(0.6)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .stroke(.white.opacity(0.28), lineWidth: 0.7)
+                    )
+            }
+        }
+    }
+}
+
 struct FriendsView: View {
     @Binding var ShowFriendsView: Bool
 
+    @Namespace private var cardNS
+    
     @StateObject private var vm = FriendsViewModel()
     @StateObject private var unreadStore = UnreadPerChatStore()
 
@@ -198,6 +324,9 @@ struct FriendsView: View {
 
     // Suche
     @State private var searchText = ""
+    @State private var isSearching = false
+    @FocusState private var searchFocused: Bool
+    @Namespace private var glassNS
 
     // iOS15-Fallback: ursprüngliche UITableView-Farbe merken
     @State private var prevTableBG: UIColor? = nil
@@ -213,151 +342,197 @@ struct FriendsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Suchen", text: $searchText)
-                    .textInputAutocapitalization(.none)
-                    .autocorrectionDisabled()
-            }
-            .padding(10)
-            .background(Color.clear)
-            .glassEffectWithFallback()
-            .padding(.horizontal)
-            
+        ZStack {
             listContent
-            .navigationTitle("Deine Freunde")
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-            .refreshable { await generateOrLoadFriendCode(force: true) }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { ShowFriendsView = false } label: { Label("Schließen", systemImage: "xmark") }
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { showEnterCodeSheet = true } label: {
-                        Label("ID eingeben", systemImage: "number")
+        }
+        .overlay {
+            if isSearching {
+                Color.black.opacity(0.15)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .onTapGesture {
+                        withAnimation(.snappy(duration: 0.35, extraBounce: 0.02)) {
+                            isSearching = false
+                        }
+                        searchFocused = false
                     }
-                    Menu {
-                        if let uid = Auth.auth().currentUser?.uid {
-                            NavigationLink { QRCodeView(text: uid) } label: {
-                                Label("QR – meine UID", systemImage: "qrcode")
-                            }
-                        }
-                        if !myFriendCode.isEmpty {
-                            let pureCode = normalizeFriendCode(myFriendCode)
-                            NavigationLink { QRCodeView(text: pureCode) } label: {
-                                Label("QR – mein Code", systemImage: "qrcode.viewfinder")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "qrcode")
-                    }
-                    Button { showScanner = true } label: { Label("QR scannen", systemImage: "camera") }
-                }
-            }
-            .toolbarBackground(.ultraThinMaterial)
-            .onAppear {
-                if isPreview {
-                    myFriendCode = "ABCD123456"
-                    return
-                }
-                guard !isPreview else { return }
-                myUid = Auth.auth().currentUser?.uid ?? ""
-                vm.start()
-                unreadStore.start()
-                Task { await generateOrLoadFriendCode(force: false) }
-                
-                if #available(iOS 16.0, *) {
-                    // handled by ListClearBG()
-                } else {
-                    prevTableBG = UITableView.appearance().backgroundColor
-                    UITableView.appearance().backgroundColor = .clear
-                }
-            }
-            .onDisappear {
-                guard !isPreview else { return }
-                vm.stop()
-                unreadStore.stop()
-                if #available(iOS 16.0, *) { } else {
-                    UITableView.appearance().backgroundColor = prevTableBG
-                }
-            }
-        // Restlicher Code unverändert (Scanner, Alerts, Sections etc.)
-            .fullScreenCover(isPresented: $showScanner) {
-                ScannerScreen { raw in
-                    Task { @MainActor in
-                        let scanned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let norm = normalizeFriendCode(scanned)
-                        
-                        if looksLikeFriendCode(norm) {
-                            do {
-                                try await FirestoreManager.shared.addFriend(byFriendCode: norm)
-                                showScanner = false
-                                return
-                            } catch { /* try UID next */ }
-                        }
-                        
-                        if let uid = extractUid(from: scanned), !uid.isEmpty {
-                            await vm.addFriendFromScannedValue(uid)
-                            showScanner = false
-                            return
-                        }
-                        
-                        scanError = "Ungültiger QR-Inhalt."
-                        showScanner = false
-                    }
-                }
-            }
-            .sheet(isPresented: $showEnterCodeSheet) {
-                EnterCodeSheet(myCode: myFriendCode,
-                               codeInput: $codeInput,
-                               errorText: $codeError) { normalized in
-                    Task {
-                        if looksLikeFriendCode(normalized) {
-                            do {
-                                try await FirestoreManager.shared.addFriend(byFriendCode: normalized)
-                                await MainActor.run {
-                                    codeInput = ""; codeError = nil; showEnterCodeSheet = false
-                                }
-                                return
-                            } catch { /* fall back to UID */ }
-                        }
-                        
-                        do {
-                            guard let myUid = Auth.auth().currentUser?.uid else { return }
-                            let exists = try await Firestore.firestore().collection("users").document(normalized).getDocument().exists
-                            if exists, normalized != myUid {
-                                try await FirestoreManager.shared.addFriend(between: myUid, and: normalized)
-                                await MainActor.run {
-                                    codeInput = ""; codeError = nil; showEnterCodeSheet = false
-                                }
-                                return
-                            }
-                        } catch { /* ignore */ }
-                        
-                        await MainActor.run {
-                            codeError = "Code/UID nicht gefunden oder bereits befreundet."
-                        }
-                    }
-                }
-            }
-            .alert("Fehler", isPresented: .constant(scanError != nil)) {
-                Button("OK") { scanError = nil }
-            } message: { Text(scanError ?? "") }
-            .alert("Freund entfernen?", isPresented: $showConfirmDelete, presenting: pendingDeletion) { friend in
-                Button("Entfernen", role: .destructive) {
-                    Task {
-                        await vm.removeFriend(uid: friend.uid)
-                        pendingDeletion = nil
-                    }
-                }
-                Button("Abbrechen", role: .cancel) { pendingDeletion = nil }
-            } message: { friend in
-                Text("Möchtest du \(friend.username) wirklich aus deiner Freundesliste entfernen?")
             }
         }
+        .scrollDismissesKeyboard(.immediately)
+        // Navigation/Toolbar nur EINMAL anhängen
+        .navigationTitle("Deine Freunde")
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button { showEnterCodeSheet = true } label: { Label("ID eingeben", systemImage: "number") }
+                Menu {
+                    if let uid = Auth.auth().currentUser?.uid {
+                        NavigationLink { QRCodeView(text: uid) } label: { Label("QR – meine UID", systemImage: "qrcode") }
+                    }
+                    if !myFriendCode.isEmpty {
+                        let pureCode = normalizeFriendCode(myFriendCode)
+                        NavigationLink { QRCodeView(text: pureCode) } label: { Label("QR – mein Code", systemImage: "qrcode.viewfinder") }
+                    }
+                } label: { Image(systemName: "qrcode") }
+                Button { showScanner = true } label: { Label("QR scannen", systemImage: "camera") }
+            }
+        }
+        .refreshable { await generateOrLoadFriendCode(force: true) }
+        .onAppear {
+            if isPreview {
+                myFriendCode = "ABCD123456"
+                return
+            }
+            guard !isPreview else { return }
+            myUid = Auth.auth().currentUser?.uid ?? ""
+            vm.start()
+            unreadStore.start()
+            Task { await generateOrLoadFriendCode(force: false) }
+
+            if #available(iOS 16.0, *) {
+                // handled by ListClearBG()
+            } else {
+                prevTableBG = UITableView.appearance().backgroundColor
+                UITableView.appearance().backgroundColor = .clear
+            }
+        }
+        .onDisappear {
+            guard !isPreview else { return }
+            vm.stop()
+            unreadStore.stop()
+            if #available(iOS 16.0, *) { } else {
+                UITableView.appearance().backgroundColor = prevTableBG
+            }
+        }
+
+        // Unten: kompakte Pill (inaktiv)
+        .safeAreaInset(edge: .bottom) {
+            if !isSearching {
+                SearchPill {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        Text("Suchen").foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .contentShape(.capsule)
+                    .onTapGesture {
+                        withAnimation(.snappy) { isSearching = true }
+                        DispatchQueue.main.async { searchFocused = true }
+                    }
+                }
+                .padding(.horizontal).padding(.bottom, 8)
+            }
+        }
+
+        // Oben: aufgeklapptes Feld (aktiv)
+        .safeAreaInset(edge: .top) {
+            if #available(iOS 26.0, *), isSearching {
+                GlassEffectContainer(spacing: 0) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                        TextField("Suchen", text: $searchText)
+                            .focused($searchFocused)
+                            .textInputAutocapitalization(.none)
+                            .autocorrectionDisabled()
+                            .submitLabel(.search)
+
+                        if !searchText.isEmpty {
+                            Button { searchText = "" } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                            }.buttonStyle(.plain)
+                        }
+
+                        Button("Abbrechen") {
+                            withAnimation(.snappy) { isSearching = false }
+                            searchFocused = false
+                        }
+                        .font(.body.weight(.semibold))
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .glassEffectID("search", in: glassNS)
+                }
+                .padding(.horizontal).padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .onChange(of: searchFocused) { oldValue, focused in
+            if focused && !isSearching {
+                withAnimation(.snappy(duration: 0.35, extraBounce: 0.02)) {
+                    isSearching = true
+                }
+            }
+        }
+
         .background(AuroraRibbonsBackground(style: .auto))
+
+        // Rest wie gehabt
+        .fullScreenCover(isPresented: $showScanner) {
+            ScannerScreen { raw in
+                Task { @MainActor in
+                    let scanned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let norm = normalizeFriendCode(scanned)
+
+                    if looksLikeFriendCode(norm) {
+                        do {
+                            try await FirestoreManager.shared.addFriend(byFriendCode: norm)
+                            showScanner = false
+                            return
+                        } catch { /* try UID next */ }
+                    }
+                    if let uid = extractUid(from: scanned), !uid.isEmpty {
+                        await vm.addFriendFromScannedValue(uid)
+                        showScanner = false
+                        return
+                    }
+                    scanError = "Ungültiger QR-Inhalt."
+                    showScanner = false
+                }
+            }
+        }
+        .sheet(isPresented: $showEnterCodeSheet) {
+            EnterCodeSheet(myCode: myFriendCode,
+                           codeInput: $codeInput,
+                           errorText: $codeError) { normalized in
+                Task {
+                    if looksLikeFriendCode(normalized) {
+                        do {
+                            try await FirestoreManager.shared.addFriend(byFriendCode: normalized)
+                            await MainActor.run {
+                                codeInput = ""; codeError = nil; showEnterCodeSheet = false
+                            }
+                            return
+                        } catch { /* fall back to UID */ }
+                    }
+                    do {
+                        guard let myUid = Auth.auth().currentUser?.uid else { return }
+                        let exists = try await Firestore.firestore().collection("users").document(normalized).getDocument().exists
+                        if exists, normalized != myUid {
+                            try await FirestoreManager.shared.addFriend(between: myUid, and: normalized)
+                            await MainActor.run {
+                                codeInput = ""; codeError = nil; showEnterCodeSheet = false
+                            }
+                            return
+                        }
+                    } catch { /* ignore */ }
+                    await MainActor.run { codeError = "Code/UID nicht gefunden oder bereits befreundet." }
+                }
+            }
+        }
+        .alert("Fehler", isPresented: .constant(scanError != nil)) {
+            Button("OK") { scanError = nil }
+        } message: { Text(scanError ?? "") }
+        .alert("Freund entfernen?", isPresented: $showConfirmDelete, presenting: pendingDeletion) { friend in
+            Button("Entfernen", role: .destructive) {
+                Task {
+                    await vm.removeFriend(uid: friend.uid)
+                    pendingDeletion = nil
+                }
+            }
+            Button("Abbrechen", role: .cancel) { pendingDeletion = nil }
+        } message: { friend in
+            Text("Möchtest du \(friend.username) wirklich aus deiner Freundesliste entfernen?")
+        }
     }
 
     // MARK: - Teil-Views (zerlegen = schnelleres Type-Checking)
@@ -392,7 +567,6 @@ struct FriendsView: View {
                     .padding(12)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .glassCodeCardEffectWithFallback()
                 }
             }
             
@@ -421,29 +595,23 @@ struct FriendsView: View {
                         NavigationLink {
                             ChatView(user: friend)
                         } label: {
-                            FriendRow(friend: friend, unreadCount: unreadCount(for: friend))
-                                .frame(maxWidth: .infinity)
-                                .frame(minHeight: 70)
-                                .padding(.horizontal, 12)
-                                .contentShape(Rectangle())
-                        }
-                        .listRowInsets(rowInsets)
-                        .listRowSeparator(.hidden)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) { /* … */ } label: {
-                                Label("Entfernen", systemImage: "trash")
+                            GlassRow {
+                                FriendRow(friend: friend, unreadCount: unreadCount(for: friend))
+                                    .contentShape(Rectangle())
+                                    .overlay(alignment: .trailing) {
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundStyle(.secondary)
+                                            .padding(.trailing, 6)
+                                    }
                             }
                         }
-                        .padding(.horizontal, 14)
+                        // iOS 18+: System-Chevron ausblenden
+                        .navigationLinkIndicatorVisibility(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .glassEffectWithFallback()
-                .listSectionSpacing(.compact)                   // kleiner Section-Abstand
-                .listStyle(.plain)                              // optional: generell dichter
-                .environment(\.defaultMinListRowHeight, 0)      // verhindert, dass iOS Mindesthöhe erzwingt
-                .listSectionSpacing(.compact)
-                .listRowBackground(Color.clear)
             }
         }
         .listStyle(.plain)
@@ -502,22 +670,6 @@ struct FriendsView: View {
             return trimmed
         }
         return nil
-    }
-
-    private func formatFriendCode(_ raw: String) -> String {
-        let code = raw.uppercased().replacingOccurrences(of: "#", with: "").replacingOccurrences(of: " ", with: "")
-        guard !code.isEmpty else { return "–" }
-        let chars = Array(code)
-        var parts: [String] = []
-        let cuts = [0..<min(4, chars.count),
-                    min(4, chars.count)..<min(8, chars.count),
-                    min(8, chars.count)..<min(10, chars.count)]
-        for r in cuts where r.lowerBound < r.upperBound { parts.append(String(chars[r])) }
-        return "#"+parts.joined(separator: " ")
-    }
-
-    private func shareTextForCode(_ code: String) -> String {
-        "Füg mich als Freund hinzu mit meiner ID: \(formatFriendCode(code))"
     }
 
     private func normalizeFriendCode(_ raw: String) -> String {
@@ -635,99 +787,98 @@ private struct FriendCodeCard: View {
     let errorText: String?
     let onRefresh: () -> Void
 
+    @Namespace private var cardNS
+
     var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text("Dein Freundes-Code")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding()
-                    .glassEffectWithFallback()
-                Spacer()
-                if isLoading { ProgressView().scaleEffect(0.8) }
-                Button(action: onRefresh) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .disabled(isLoading)
-                .glassButtonStyleOrFallback()
-            }
-            
+        let cardShape = RoundedRectangle(cornerRadius: 12, style: .continuous)
 
-            HStack(spacing: 12) {
-                Text(formatFriendCode(code))
-                    .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .padding(.vertical, 4)
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
-                    .padding()
-                    .glassEffectWithFallback()
-
-                Spacer().frame(width: 0)
-                
-                Button {
-                    guard !code.isEmpty else { return }
-                    UIPasteboard.general.string = code
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 20, weight: .semibold))
-                        .padding(.vertical, -5)
-                        .padding(.horizontal, -5)
+        // 1) reiner Inhalt, ohne „self“-Bezug
+        let content =
+            VStack(spacing: 12) {
+                HStack {
+                    Text("Dein Freundes-Code")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding()
+                    Spacer()
+                    if isLoading { ProgressView().scaleEffect(0.8) }
+                    Button(action: onRefresh) { Image(systemName: "arrow.clockwise") }
+                        .disabled(isLoading)
                 }
-                .controlSize(.large)
-                .glassButtonStyleOrFallback()
-                
-                if !code.isEmpty {
-                    ShareLink(items: [shareTextForCode(code)]) {
-                        Image(systemName: "square.and.arrow.up")
+
+                HStack(spacing: 12) {
+                    Text(formatFriendCode(code))
+                        .font(.system(size: 28, weight: .bold, design: .monospaced))
+                        .padding(.vertical, 4)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                        .padding()
+
+                    Spacer(minLength: 0)
+
+                    Button {
+                        guard !code.isEmpty else { return }
+                        UIPasteboard.general.string = code
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
                             .font(.system(size: 20, weight: .semibold))
-                            .padding(.vertical, 5)
-                            .padding(.horizontal, 5)
+                            .padding(.vertical, -5)
+                            .padding(.horizontal, -5)
                     }
-                    .glassButtonStyleOrFallback()
+                    .controlSize(.large)
+
+                    if !code.isEmpty {
+                        ShareLink(items: [shareTextForCode(code)]) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 20, weight: .semibold))
+                                .padding(.vertical, 5)
+                                .padding(.horizontal, 5)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.6)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(.white.opacity(0.28), lineWidth: 0.7)
+                )
+
+                if let errorText, !errorText.isEmpty {
+                    Text(errorText)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("Teile diesen Code oder nutze den QR-Code – andere können dich so als Freund hinzufügen.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .frame(maxWidth: .infinity)
             .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .opacity(0.6)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(.white.opacity(0.28), lineWidth: 0.7)
-            )
 
-            if let errorText, !errorText.isEmpty {
-                Text(errorText)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text("Teile diesen Code oder nutze den QR-Code – andere können dich so als Freund hinzufügen.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        // 2) jetzt *den Inhalt* glasen – nicht self
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer {
+                content
+                    .glassEffect(.regular.interactive(),
+                                 in: .rect(cornerRadius: 12, style: .continuous))
+                    .glassEffectID("friendCodeCard", in: cardNS)
             }
+        } else {
+            content
+                .background(.ultraThinMaterial, in: cardShape)
+                .overlay(cardShape.stroke(.white.opacity(0.28), lineWidth: 0.7))
         }
     }
 
-    private func formatFriendCode(_ raw: String) -> String {
-        let code = raw.uppercased().replacingOccurrences(of: "#", with: "").replacingOccurrences(of: " ", with: "")
-        guard !code.isEmpty else { return "–" }
-        let chars = Array(code)
-        var parts: [String] = []
-        let cuts = [0..<min(4, chars.count),
-                    min(4, chars.count)..<min(8, chars.count),
-                    min(8, chars.count)..<min(10, chars.count)]
-        for r in cuts where r.lowerBound < r.upperBound { parts.append(String(chars[r])) }
-        return "#"+parts.joined(separator: " ")
-    }
-
-    private func shareTextForCode(_ code: String) -> String {
-        "Füg mich als Freund hinzu mit meiner ID: \(formatFriendCode(code))"
-    }
+    // … deine Helper bleiben gleich …
 }
 
 /// Sanfter Aurora-Look (blau/türkis/violett), bewusst **anders** als der Feed/Profile-Hintergrund.
@@ -930,21 +1081,56 @@ private extension View {
             self
         }
     }
-    
+}
+
+private extension View {
     @ViewBuilder
     func glassCardBackground(cornerRadius: CGFloat = 12) -> some View {
-        if #available(iOS 18.0, *) {
+        if #available(iOS 26.0, *) {
             self.background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .glassEffectWithFallback()
+                    .fill(.clear)          // wichtig: keine graue Fläche
+                    .glassEffect()         // echter Glass-Effekt
             }
         } else {
-            // Fallback: Material in die Shape „einschneiden“
+            // sanfter Fallback (weniger „grau“ machen über Opazität)
             self.background(
-                .ultraThinMaterial,
+                .ultraThinMaterial.opacity(0.55),
                 in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             )
         }
+    }
+}
+
+// 1) Fallback & Wrapper für den „Pill“-Container
+private struct PillFallback<Content: View>: View {
+    let content: () -> Content
+    var body: some View {
+        content()
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: Capsule())
+    }
+}
+
+@available(iOS 26.0, *)
+private struct PillGlass<Content: View>: View {
+    let content: () -> Content
+    var body: some View {
+        GlassEffectContainer {
+            content()
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .glassEffect(.regular.interactive(), in: .capsule)
+        }
+    }
+}
+
+// 2) Hilfsfunktion: wählt zur Laufzeit den Wrapper aus und ERASIERT den Typ
+@ViewBuilder
+private func SearchPill<Content: View>(@ViewBuilder _ content: @escaping () -> Content) -> some View {
+    if #available(iOS 26.0, *) {
+        AnyView(PillGlass(content: content))
+    } else {
+        AnyView(PillFallback(content: content))
     }
 }
 

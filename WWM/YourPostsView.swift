@@ -30,6 +30,12 @@ struct YourPostsView: View {
     @State private var postToDelete: YourPost?
     @State private var showDeleteAlert = false
 
+    private let rdf: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f
+    }()
+
     var body: some View {
         ZStack {
             ScrollView {
@@ -55,6 +61,7 @@ struct YourPostsView: View {
                     LazyVStack(spacing: 16) {
                         ForEach(posts) { post in
                             VStack(alignment: .leading, spacing: 8) {
+                                // Header
                                 HStack(spacing: 10) {
                                     Base64ImageView(base64: post.pfpBase64, size: 36, cornerRadius: 18)
                                     Text(post.username.isEmpty ? "Unbekannt" : post.username)
@@ -62,7 +69,7 @@ struct YourPostsView: View {
                                         .foregroundColor(.primary)
                                     Spacer(minLength: 8)
                                     if let ts = post.createdAt {
-                                        Text(RelativeDateTimeFormatter().localizedString(for: ts, relativeTo: Date()))
+                                        Text(rdf.localizedString(for: ts, relativeTo: Date()))
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                             .lineLimit(1)
@@ -79,6 +86,7 @@ struct YourPostsView: View {
                                     .buttonStyle(.plain)
                                 }
 
+                                // Bild
                                 if let img = UIImage.fromBase64(post.imageBase64) {
                                     Image(uiImage: img)
                                         .resizable()
@@ -92,16 +100,17 @@ struct YourPostsView: View {
                                         .frame(height: 220)
                                 }
 
+                                // Caption
                                 if !post.caption.isEmpty {
                                     Text(post.caption)
                                         .font(.body)
                                         .foregroundColor(.primary)
                                         .multilineTextAlignment(.leading)
-                                        .lineLimit(nil)
                                         .fixedSize(horizontal: false, vertical: true)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
 
+                                // Adresse
                                 if !post.address.isEmpty {
                                     HStack(alignment: .top, spacing: 6) {
                                         Image(systemName: "mappin.and.ellipse")
@@ -109,7 +118,6 @@ struct YourPostsView: View {
                                         Text(post.address)
                                             .foregroundColor(.secondary)
                                             .multilineTextAlignment(.leading)
-                                            .lineLimit(nil)
                                             .fixedSize(horizontal: false, vertical: true)
                                     }
                                     .font(.subheadline)
@@ -117,9 +125,8 @@ struct YourPostsView: View {
                                 }
                             }
                             .padding(12)
-                            .background(Color(UIColor.secondarySystemBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                            .shadow(radius: 8, y: 4)
+                            .glassCardEffect(cornerRadius: 16) // << echtes Glas (iOS18+) + Fallback
+                            .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
                         }
                     }
                     .padding()
@@ -127,11 +134,6 @@ struct YourPostsView: View {
             }
         }
         .navigationTitle("Deine Beiträge")
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { ShowYourPostsView = false } label: { Image(systemName: "xmark") }
-            }
-        }
         .onAppear { startListening() }
         .onDisappear { stopListening() }
         .alert("Beitrag löschen?", isPresented: $showDeleteAlert, presenting: postToDelete) { post in
@@ -144,6 +146,8 @@ struct YourPostsView: View {
         }
         .background(.background)
     }
+
+    // MARK: - Firestore
 
     private func startListening() {
         stopListening()
@@ -202,6 +206,32 @@ struct YourPostsView: View {
         }
     }
 }
+
+// MARK: - Glass Helper (echtes Glas + Fallback)
+
+private extension View {
+    /// Umhüllt den Inhalt mit Apple-Glas (iOS 18+) und bietet darunter ein Material-Fallback.
+    @ViewBuilder
+    func glassCardEffect(cornerRadius: CGFloat = 16) -> some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer {
+                self
+                    .glassEffect(.regular.interactive(),
+                                 in: .rect(cornerRadius: cornerRadius, style: .continuous))
+            }
+        } else {
+            self
+                .background(.ultraThinMaterial.opacity(0.55),
+                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(.white.opacity(0.28), lineWidth: 0.7)
+                )
+        }
+    }
+}
+
+// MARK: - Utils
 
 fileprivate extension UIImage {
     static func fromBase64(_ base64: String) -> UIImage? {

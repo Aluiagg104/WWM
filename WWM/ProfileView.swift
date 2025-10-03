@@ -7,8 +7,10 @@ private let SIDE_MARGIN: CGFloat = 32
 struct ProfileView: View {
     @StateObject private var userVM = CurrentUserViewModel()
     @State private var signOutError: String?
-    @State private var showFriendsView = false
-    @State private var showYourPostsView = false
+
+    // Navigation-Push-States (ersetzt fullScreenCover)
+    @State private var pushFriends = false
+    @State private var pushYourPosts = false
 
     var body: some View {
         ZStack {
@@ -17,7 +19,10 @@ struct ProfileView: View {
 
             ScrollView {
                 VStack(spacing: 14) {
-                    NavigationLink { ProfileEditView() } label: {
+                    // Profil-Header – NavigationLink zu ProfileEditView
+                    NavigationLink {
+                        ProfileEditView()
+                    } label: {
                         HStack(spacing: 14) {
                             Base64ImageView(
                                 base64: userVM.pfpBase64 ?? UserDefaults.standard.string(forKey: "pfpBase64"),
@@ -39,27 +44,39 @@ struct ProfileView: View {
                         }
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(glassCardBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .glassCardEffect(cornerRadius: 22)
                         .shadow(color: .black.opacity(0.20), radius: 14, x: 0, y: 8)
                     }
                     .buttonStyle(.plain)
 
+                    // Kacheln: jetzt als NavigationLink-Labels (echtes Push)
                     VStack(spacing: 12) {
-                        GlassRowButton(
-                            icon: "person.2.fill",
-                            title: "Freunde",
-                            trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
-                        ) {
-                            showFriendsView = true
+                        // Freunde
+                        NavigationLink(isActive: $pushFriends) {
+                            // Ziel: FriendsView nutzt das Binding, um „Schließen“ zu handhaben
+                            FriendsView(ShowFriendsView: $pushFriends)
+                        } label: {
+                            GlassRowTile(
+                                icon: "person.2.fill",
+                                title: "Freunde",
+                                trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
+                            )
                         }
-                        GlassRowButton(
-                            icon: "photo",
-                            title: "Deine Beiträge",
-                            trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
-                        ) {
-                            showYourPostsView = true
+                        .buttonStyle(.plain)
+
+                        // Deine Beiträge
+                        NavigationLink(isActive: $pushYourPosts) {
+                            YourPostsView(ShowYourPostsView: $pushYourPosts)
+                        } label: {
+                            GlassRowTile(
+                                icon: "photo",
+                                title: "Deine Beiträge",
+                                trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
+                            )
                         }
+                        .buttonStyle(.plain)
+
+                        // Abmelden bleibt Button (kein Push)
                         GlassRowButton(
                             icon: "rectangle.portrait.and.arrow.right",
                             title: "Abmelden",
@@ -80,18 +97,10 @@ struct ProfileView: View {
             .modifier(ScrollContentMargins(top: 0, horizontal: SIDE_MARGIN, bottom: 12))
         }
         .task { await userVM.loadProfile() }
-        .fullScreenCover(isPresented: $showFriendsView) {
-            NavigationStack {
-                FriendsView(ShowFriendsView: $showFriendsView)
-            }
-        }
-        .fullScreenCover(isPresented: $showYourPostsView) {
-            NavigationStack {
-                YourPostsView(ShowYourPostsView: $showYourPostsView)
-            }
-        }
+        // Hinweis: keine fullScreenCover mehr – Navigation läuft über NavigationLink
     }
 
+    // alter Material-Style (nur noch intern als Fallback genutzt)
     private var glassCardBackground: some ShapeStyle {
         .ultraThinMaterial
             .shadow(.inner(color: .white.opacity(0.08), radius: 1, x: 0, y: 1))
@@ -99,10 +108,9 @@ struct ProfileView: View {
 
     @MainActor
     private func performSignOut() {
-        withTransaction(Transaction(animation: .none)) {
-            showFriendsView = false
-            showYourPostsView = false
-        }
+        // Beim Logout keine offenen Push-Ziele
+        pushFriends = false
+        pushYourPosts = false
         do {
             try AuthenticationManager.shared.signOut()
             userVM.reset()
@@ -113,6 +121,37 @@ struct ProfileView: View {
     }
 }
 
+// MARK: - Kachel-Views
+
+/// Label für NavigationLink mit Liquid-Glass-Look (kein Button!)
+private struct GlassRowTile<Trailing: View>: View {
+    let icon: String
+    let title: String
+    var tint: Color? = nil
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 28, height: 28)
+                .foregroundStyle(tint ?? .primary)
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(tint ?? .primary)
+            Spacer(minLength: 0)
+            trailing()
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCardEffect(cornerRadius: 20) // echter Glass-Effekt + Fallback
+        .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 6)
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+/// Button-Variante (für „Abmelden“)
 private struct GlassRowButton<Trailing: View>: View {
     let icon: String
     let title: String
@@ -122,34 +161,13 @@ private struct GlassRowButton<Trailing: View>: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(width: 28, height: 28)
-                    .foregroundStyle(tint ?? .primary)
-                Text(title)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(tint ?? .primary)
-                Spacer(minLength: 0)
-                trailing()
-            }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .opacity(0.55)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(.white.opacity(0.28), lineWidth: 0.7)
-            )
-            .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 6)
+            GlassRowTile(icon: icon, title: title, tint: tint, trailing: trailing)
         }
         .buttonStyle(.plain)
     }
 }
+
+// MARK: - Layout & Background
 
 private struct ScrollContentMargins: ViewModifier {
     let top: CGFloat
@@ -194,5 +212,31 @@ private struct LiquidGlassBackgroundProfile: View {
             .frame(width: size, height: size)
             .blur(radius: blur)
             .offset(x: x, y: y)
+    }
+}
+
+// MARK: - Glass Helper (echtes Liquid Glass + Fallback)
+
+private extension View {
+    /// Umhüllt den Inhalt mit Liquid-Glass (iOS 26+) und bietet darunter ein Material-Fallback.
+    @ViewBuilder
+    func glassCardEffect(cornerRadius: CGFloat = 20) -> some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer {
+                self
+                    .glassEffect(.regular.interactive(),
+                                 in: .rect(cornerRadius: cornerRadius, style: .continuous))
+            }
+        } else {
+            self
+                .background(
+                    .ultraThinMaterial.opacity(0.55),
+                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(.white.opacity(0.28), lineWidth: 0.7)
+                )
+        }
     }
 }
