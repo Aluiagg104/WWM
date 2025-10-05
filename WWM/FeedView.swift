@@ -28,17 +28,14 @@ private let CONTENT_SIDE_MARGIN: CGFloat = 20
 struct FeedView: View {
     @State private var showAuthSheet = true
     @StateObject private var userVM = CurrentUserViewModel()
-
     @State private var posts: [FeedPost] = []
     @State private var postsListener: ListenerRegistration?
-
     @State private var tab: MainTab = .feed
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
             LiquidGlassBackground()
-
             Group {
                 switch tab {
                 case .feed:    feedContent
@@ -56,7 +53,7 @@ struct FeedView: View {
             } else {
                 showAuthSheet = (Auth.auth().currentUser == nil)
                 startListeningPosts()
-                userVM.startAuthListener()   // Live auf eigenen User
+                userVM.startAuthListener()
             }
         }
         .onDisappear {
@@ -79,7 +76,7 @@ struct FeedView: View {
                         currentUserPfp: userVM.pfpBase64,
                         currentUsername: userVM.username
                     )
-                    .id(post.id) // stabil pro Post
+                    .id(post.id)
                 }
             }
             .padding(.horizontal, CONTENT_SIDE_MARGIN)
@@ -88,34 +85,41 @@ struct FeedView: View {
         }
     }
 
-    // MARK: - Firestore: Posts
-
     private func startListeningPosts() {
         stopListeningPosts()
         postsListener = Firestore.firestore()
             .collection("posts")
-            .order(by: "createdAt", descending: true)
             .addSnapshotListener(includeMetadataChanges: true) { snap, _ in
                 let docs = snap?.documents ?? []
                 let items: [FeedPost] = docs.compactMap { doc in
                     let d = doc.data()
+                    let author = (d["authorUid"] as? String) ?? (d["uid"] as? String) ?? (d["author_uid"] as? String) ?? ""
+                    let name = (d["username"] as? String) ?? (d["user_name"] as? String) ?? ""
+                    let pfp = (d["pfpThumb"] as? String) ?? (d["pfpData"] as? String) ?? (d["pfp_data"] as? String)
+                    let imgPrev = (d["imagePreview"] as? String) ?? (d["image_preview"] as? String)
+                    let imgInline = (d["imageData"] as? String) ?? (d["image_data"] as? String)
+                    let cap = (d["caption"] as? String) ?? ""
+                    let addr = (d["address"] as? String) ?? ""
+                    let strain = (d["strain"] as? String) ?? ""
+                    let ts = (d["createdAt"] as? Timestamp)?.dateValue() ?? (d["created_at"] as? Timestamp)?.dateValue()
+                    let chunks = (d["hasChunks"] as? Bool) ?? (d["has_chunks"] as? Bool) ?? false
                     return FeedPost(
                         id: doc.documentID,
-                        // ⬅️ WICHTIG: Fallback auf "uid" (so heißen deine Rules/Docs)
-                        authorUid: (d["authorUid"] as? String) ?? (d["uid"] as? String) ?? "",
-                        username: (d["username"] as? String) ?? "",
-                        pfpThumbBase64: d["pfpThumb"] as? String,
-                        imagePreviewBase64: d["imagePreview"] as? String,
-                        imageInlineBase64: d["imageData"] as? String,
-                        hasChunks: (d["hasChunks"] as? Bool) ?? false,
-                        caption: (d["caption"] as? String) ?? "",
-                        address: (d["address"] as? String) ?? "",
-                        createdAt: (d["createdAt"] as? Timestamp)?.dateValue(),
-                        strain: (d["strain"] as? String) ?? ""
+                        authorUid: author,
+                        username: name,
+                        pfpThumbBase64: pfp,
+                        imagePreviewBase64: imgPrev,
+                        imageInlineBase64: imgInline,
+                        hasChunks: chunks,
+                        caption: cap,
+                        address: addr,
+                        createdAt: ts,
+                        strain: strain
                     )
                 }
+                let sorted = items.sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
                 DispatchQueue.main.async {
-                    self.posts = items
+                    self.posts = sorted
                 }
             }
     }
@@ -126,17 +130,13 @@ struct FeedView: View {
     }
 }
 
-// MARK: - Card (mit eigenem Live-Listener pro Autor)
-
 private struct FeedPostCard: View {
     let post: FeedPost
     let currentUserPfp: String?
     let currentUsername: String?
-
     @State private var liveUsername: String?
     @State private var livePfp: String?
     @State private var authorListener: ListenerRegistration?
-
     private let corner: CGFloat = 18
     private static let rdf: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -144,14 +144,12 @@ private struct FeedPostCard: View {
         return f
     }()
 
-    // Live-Priorität: livePfp > (eigener aktueller PFP bei eigenem Post) > gespeicherter pfpThumb
     private var effectivePfp: String? {
         if let livePfp, !livePfp.isEmpty { return livePfp }
         if post.username == currentUsername, let me = currentUserPfp, !me.isEmpty { return me }
         return post.pfpThumbBase64
     }
 
-    // Live-Name (fallback: gespeicherter Name im Post)
     private var effectiveUsername: String {
         let candidate = (liveUsername?.isEmpty == false ? liveUsername! : post.username)
         return candidate.isEmpty ? "Unbekannt" : candidate
@@ -168,7 +166,6 @@ private struct FeedPostCard: View {
         .padding(14)
         .onAppear { attachAuthorListener() }
         .onDisappear { detachAuthorListener() }
-        // Falls sich der Author-Uid des Posts ändert, Listener neu setzen
         .onChange(of: post.authorUid) { _, _ in
             detachAuthorListener()
             attachAuthorListener()
@@ -195,27 +192,20 @@ private struct FeedPostCard: View {
     private func attachAuthorListener() {
         guard !post.authorUid.isEmpty, authorListener == nil else { return }
         let ref = Firestore.firestore().collection("users").document(post.authorUid)
-
-        // Live-Listener (Cache + Server)
         authorListener = ref.addSnapshotListener(includeMetadataChanges: true) { snap, err in
-            if let err = err {
-                print("❌ users/\(post.authorUid) listen error:", err)
-                return
-            }
+            if let _ = err { return }
             guard let data = snap?.data() else { return }
-            let name = data["username"] as? String
-            let pfp  = data["pfpData"] as? String
+            let name = data["username"] as? String ?? data["user_name"] as? String
+            let pfp  = data["pfpData"] as? String ?? data["pfp_data"] as? String
             DispatchQueue.main.async {
                 self.liveUsername = name
                 self.livePfp = pfp
             }
         }
-
-        // Einmal explizit vom Server (Cache durchstoßen)
         ref.getDocument(source: .server) { snap, _ in
             guard let data = snap?.data() else { return }
-            let name = data["username"] as? String
-            let pfp  = data["pfpData"] as? String
+            let name = data["username"] as? String ?? data["user_name"] as? String
+            let pfp  = data["pfpData"] as? String ?? data["pfp_data"] as? String
             DispatchQueue.main.async {
                 self.liveUsername = name
                 self.livePfp = pfp
@@ -320,8 +310,6 @@ private struct FeedPostCard: View {
     }
 }
 
-// MARK: - Background
-
 private struct LiquidGlassBackground: View {
     @Environment(\.colorScheme) private var colorScheme
     var body: some View {
@@ -351,7 +339,16 @@ private struct LiquidGlassBackground: View {
 
 fileprivate extension UIImage {
     static func fromBase64(_ base64: String) -> UIImage? {
-        guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters) else { return nil }
+        let trimmed = base64.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body: String = {
+            if let idx = trimmed.firstIndex(of: ",") {
+                let next = trimmed.index(after: idx)
+                return String(trimmed[next...])
+            } else {
+                return trimmed
+            }
+        }()
+        guard let data = Data(base64Encoded: body, options: .ignoreUnknownCharacters) else { return nil }
         return UIImage(data: data)
     }
 }
