@@ -1,5 +1,5 @@
 //
-//  FriendsView.swift
+//  FriendsView.swift (Search removed)
 //  WWM
 //
 
@@ -9,79 +9,6 @@ import FirebaseFirestore
 import UIKit
 
 private let kChatsLastSeenKey = "chats_last_seen_at"
-
-@available(iOS 26.0, *)
-struct BottomGlassSearchBar: View {
-    @Binding var text: String
-    @State private var isSearching = false
-    @FocusState private var focused: Bool
-    @Namespace private var glassNS
-
-    var body: some View {
-        ZStack { Color.clear } // Platzhalter für deinen Content
-            // TOP: aufgeklappte Suchleiste (nur wenn aktiv)
-            .safeAreaInset(edge: .top) {
-                if isSearching {
-                    GlassEffectContainer(spacing: 0) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                            TextField("Suchen", text: $text)
-                                .focused($focused)
-                                .textInputAutocapitalization(.none)
-                                .autocorrectionDisabled()
-                                .submitLabel(.search)
-
-                            if !text.isEmpty {
-                                Button { text = "" } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                }
-                                .buttonStyle(.plain)
-                            }
-
-                            Button("Abbrechen") {
-                                withAnimation(.snappy) { isSearching = false }
-                                focused = false
-                            }
-                            .font(.body.weight(.semibold))
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        // echtes iOS-26-Glas:
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                        .glassEffectID("search", in: glassNS)
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
-
-            // BOTTOM: kompakte Such-Pill (nur wenn inaktiv)
-            .safeAreaInset(edge: .bottom) {
-                if !isSearching {
-                    GlassEffectContainer {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                            Text("Suchen")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .foregroundStyle(.secondary)
-                        }
-                        .contentShape(.capsule)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                        .glassEffectID("search", in: glassNS)
-                        .onTapGesture {
-                            withAnimation(.snappy) { isSearching = true }
-                            DispatchQueue.main.async { focused = true }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-                }
-            }
-    }
-}
 
 fileprivate func formatFriendCode(_ raw: String) -> String {
     let code = raw.uppercased().replacingOccurrences(of: "#", with: "").replacingOccurrences(of: " ", with: "")
@@ -291,9 +218,14 @@ private struct GlassRow<Content: View>: View {
     }
 }
 
-struct FriendsView: View {
-    @Binding var ShowFriendsView: Bool
+extension AppUser {
+    func localizedCaseInsensitiveContains(_ needle: String) -> Bool {
+        username.localizedCaseInsensitiveContains(needle)
+        || email.localizedCaseInsensitiveContains(needle)
+    }
+}
 
+struct FriendsView: View {
     @Namespace private var cardNS
     
     @StateObject private var vm = FriendsViewModel()
@@ -322,44 +254,19 @@ struct FriendsView: View {
     @State private var codeInput: String = ""
     @State private var codeError: String?
 
-    // Suche
-    @State private var searchText = ""
-    @State private var isSearching = false
-    @FocusState private var searchFocused: Bool
-    @Namespace private var glassNS
-
     // iOS15-Fallback: ursprüngliche UITableView-Farbe merken
     @State private var prevTableBG: UIColor? = nil
     
     @State private var navSelection: String? = nil
-
-    var filteredFriends: [AppUser] {
-        guard !searchText.isEmpty else { return vm.friends }
-        let q = searchText.lowercased()
-        return vm.friends.filter { u in
-            u.username.lowercased().contains(q) || u.email.lowercased().contains(q)
-        }
-    }
+    
+    
+    
+    var filteredFriends: [AppUser] { vm.friends }
 
     var body: some View {
         ZStack {
             listContent
         }
-        .overlay {
-            if isSearching {
-                Color.black.opacity(0.15)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                    .onTapGesture {
-                        withAnimation(.snappy(duration: 0.35, extraBounce: 0.02)) {
-                            isSearching = false
-                        }
-                        searchFocused = false
-                    }
-            }
-        }
-        .scrollDismissesKeyboard(.immediately)
-        // Navigation/Toolbar nur EINMAL anhängen
         .navigationTitle("Deine Freunde")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
@@ -404,68 +311,7 @@ struct FriendsView: View {
                 UITableView.appearance().backgroundColor = prevTableBG
             }
         }
-
-        // Unten: kompakte Pill (inaktiv)
-        .safeAreaInset(edge: .bottom) {
-            if !isSearching {
-                SearchPill {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        Text("Suchen").foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .contentShape(.capsule)
-                    .onTapGesture {
-                        withAnimation(.snappy) { isSearching = true }
-                        DispatchQueue.main.async { searchFocused = true }
-                    }
-                }
-                .padding(.horizontal).padding(.bottom, 8)
-            }
-        }
-
-        // Oben: aufgeklapptes Feld (aktiv)
-        .safeAreaInset(edge: .top) {
-            if #available(iOS 26.0, *), isSearching {
-                GlassEffectContainer(spacing: 0) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                        TextField("Suchen", text: $searchText)
-                            .focused($searchFocused)
-                            .textInputAutocapitalization(.none)
-                            .autocorrectionDisabled()
-                            .submitLabel(.search)
-
-                        if !searchText.isEmpty {
-                            Button { searchText = "" } label: {
-                                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                            }.buttonStyle(.plain)
-                        }
-
-                        Button("Abbrechen") {
-                            withAnimation(.snappy) { isSearching = false }
-                            searchFocused = false
-                        }
-                        .font(.body.weight(.semibold))
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .glassEffectID("search", in: glassNS)
-                }
-                .padding(.horizontal).padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .onChange(of: searchFocused) { oldValue, focused in
-            if focused && !isSearching {
-                withAnimation(.snappy(duration: 0.35, extraBounce: 0.02)) {
-                    isSearching = true
-                }
-            }
-        }
-
         .background(AuroraRibbonsBackground(style: .auto))
-
         // Rest wie gehabt
         .fullScreenCover(isPresented: $showScanner) {
             ScannerScreen { raw in
@@ -606,7 +452,6 @@ struct FriendsView: View {
                                     }
                             }
                         }
-                        // iOS 18+: System-Chevron ausblenden
                         .navigationLinkIndicatorVisibility(.hidden)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -877,8 +722,6 @@ private struct FriendCodeCard: View {
                 .overlay(cardShape.stroke(.white.opacity(0.28), lineWidth: 0.7))
         }
     }
-
-    // … deine Helper bleiben gleich …
 }
 
 /// Sanfter Aurora-Look (blau/türkis/violett), bewusst **anders** als der Feed/Profile-Hintergrund.
@@ -1102,43 +945,9 @@ private extension View {
     }
 }
 
-// 1) Fallback & Wrapper für den „Pill“-Container
-private struct PillFallback<Content: View>: View {
-    let content: () -> Content
-    var body: some View {
-        content()
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: Capsule())
-    }
-}
-
-@available(iOS 26.0, *)
-private struct PillGlass<Content: View>: View {
-    let content: () -> Content
-    var body: some View {
-        GlassEffectContainer {
-            content()
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .glassEffect(.regular.interactive(), in: .capsule)
-        }
-    }
-}
-
-// 2) Hilfsfunktion: wählt zur Laufzeit den Wrapper aus und ERASIERT den Typ
-@ViewBuilder
-private func SearchPill<Content: View>(@ViewBuilder _ content: @escaping () -> Content) -> some View {
-    if #available(iOS 26.0, *) {
-        AnyView(PillGlass(content: content))
-    } else {
-        AnyView(PillFallback(content: content))
-    }
-}
-
 #Preview {
     NavigationStack {
-        FriendsView(
-            ShowFriendsView: .constant(true)
-        )
+        FriendsView()
     }
 }
 private var isPreview: Bool {

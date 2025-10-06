@@ -1,139 +1,215 @@
-//
-//  CreateAccountView.swift
-//  WWM
-//
-//  Created by F on 20.08.25.
-//
-
 import SwiftUI
 import _PhotosUI_SwiftUI
+import FirebaseAuth
+import FirebaseFirestore
+import UIKit
 
-struct CreateAccountView: View {
-    @State private var email: String = ""
-    @State private var password: String = ""
-    @State private var username: String = ""
+extension View {
+    @ViewBuilder
+    func lgRect(_ radius: CGFloat) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular, in: .rect(cornerRadius: radius, style: .continuous))
+        } else {
+            self
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(.white.opacity(0.25), lineWidth: 0.6))
+        }
+    }
 
-    @State private var selectedItem: PhotosPickerItem? = nil
-    @State private var selectedImage: UIImage? = nil
+    @ViewBuilder
+    func lgCapsule() -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular, in: .capsule)
+        } else {
+            self
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 0.6))
+        }
+    }
 
-    // nur Logik: vermeiden, dass mehrfach geklickt wird
-    @State private var isWorking = false
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ZStack {
-            Color(hex: "#EAEAEA")
-                .ignoresSafeArea()
-
-            VStack {
-                PhotosPicker(selection: $selectedItem, matching: .images) {
-                    if let selectedImage {
-                        Image(uiImage: selectedImage)
-                            .resizable()
-                            .clipShape(Circle())
-                            .frame(maxWidth: 250, maxHeight: 250)
-                    } else {
-                        Image(systemName: "person.crop.circle.fill")
-                            .resizable()
-                            .foregroundStyle(Color(hex: "#1A1A1A"))
-                            .frame(maxWidth: 250, maxHeight: 250)
-                    }
-                }
-                .onChange(of: selectedItem) { oldValue, newValue in
-                    Task {
-                        if let data = try? await newValue?.loadTransferable(type: Data.self),
-                           let uiImage = UIImage(data: data) {
-                            selectedImage = uiImage
-                        }
-                    }
-                }
-                .padding()
-
-                TextField("Email", text: $email)
-                    .autocorrectionDisabled(true)
-                    .textInputAutocapitalization(.never)
-                    .textFieldStyle(.roundedBorder)
-
-                SecureField("Password", text: $password)
-                    .textFieldStyle(.roundedBorder)
-
-                TextField("Username", text: $username)
-                    .autocorrectionDisabled(true)
-                    .textInputAutocapitalization(.never)
-                    .textFieldStyle(.roundedBorder)
-
-                Spacer()
-
-                Button {
-                    guard !isWorking else { return }
-                    isWorking = true
-
-                    let imageToUse: UIImage = selectedImage ?? UIImage.defaultAvatar()
-                    guard let pfpData = imageToBase64JPEG(imageToUse, quality: 0.7, maxDimension: 512) else {
-                        isWorking = false
-                        return
-                    }
-
-                    // Logik: Username UND pfp lokal behalten
-                    UserDefaults.standard.set(pfpData, forKey: "pfpBase64")
-                    UserDefaults.standard.set(username, forKey: "username")
-
-                    Task {
-                        do {
-                            let user = try await AuthenticationManager.shared.createUser(email: email, password: password)
-                            try await FirestoreManager.shared.addUser(
-                                uid: user.uid,
-                                email: user.email,
-                                username: username,
-                                pfpData: pfpData
-                            )
-                            isWorking = false
-                            // Logik: nach Erfolg schließen (Root wechselt idR. über Auth-State)
-                            dismiss()
-                        } catch {
-                            isWorking = false
-                            print(error.localizedDescription)
-                        }
-                    }
-                } label: {
-                    Text("Create Account")
-                        .foregroundStyle(Color(hex: "#2B2B2B"))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                        .background(Color(hex: "#FFD166"))
-                        .cornerRadius(8)
-                }
-            }
-            .padding()
-            .navigationTitle("Create Account")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color(hex: "#55A630"), for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
+    @ViewBuilder
+    func lgButtonStyle() -> some View {
+        if #available(iOS 26.0, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonStyle(.borderedProminent)
         }
     }
 }
 
-fileprivate extension UIImage {
-    static func defaultAvatar(
-        side: CGFloat = 512,
-        symbolName: String = "person.crop.circle.fill",
-        bgColor: UIColor = .systemGray5,
-        tintColor: UIColor = .systemGray
-    ) -> UIImage {
-        let size = CGSize(width: side, height: side)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        return renderer.image { ctx in
-            bgColor.setFill()
-            ctx.fill(CGRect(origin: .zero, size: size))
+struct CreateAccountView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var email: String = ""
+    @State private var password: String = ""
+    @State private var username: String = ""
+    @State private var selectedItem: PhotosPickerItem? = nil
+    @State private var pfpBase64: String? = nil
+    @State private var isBusy = false
+    @State private var errorText: String? = nil
 
-            let inset: CGFloat = side * 0.1
-            let symbolRect = CGRect(x: inset, y: inset, width: side - inset*2, height: side - inset*2)
+    var body: some View {
+        ZStack {
+            backgroundLayer
+            Group {
+                if #available(iOS 26.0, *) {
+                    GlassEffectContainer { content }
+                } else {
+                    content
+                }
+            }
+            .padding()
+        }
+        .onChange(of: selectedItem) { _, newItem in
+            Task { await loadPfp(from: newItem) }
+        }
+    }
 
-            let config = UIImage.SymbolConfiguration(pointSize: side * 0.7, weight: .regular)
-            if let symbol = UIImage(systemName: symbolName, withConfiguration: config)?
-                .withTintColor(tintColor, renderingMode: .alwaysOriginal) {
-                symbol.draw(in: symbolRect)
+    private var backgroundLayer: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.07, green: 0.13, blue: 0.11), Color(red: 0.02, green: 0.02, blue: 0.03)], startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
+            Circle().fill(Color(red: 0.33, green: 0.77, blue: 0.39).opacity(0.28)).frame(width: 460, height: 460).blur(radius: 90).offset(x: -160, y: -260).allowsHitTesting(false)
+            Circle().fill(Color(red: 0.96, green: 0.28, blue: 0.43).opacity(0.22)).frame(width: 380, height: 380).blur(radius: 100).offset(x: 180, y: -120).allowsHitTesting(false)
+            Circle().fill(Color.blue.opacity(0.20)).frame(width: 520, height: 520).blur(radius: 140).offset(x: 80, y: 320).allowsHitTesting(false)
+        }
+    }
+
+    private var content: some View {
+        VStack(spacing: 16) {
+            Text("Konto erstellen")
+                .font(.largeTitle.weight(.semibold))
+
+            VStack(spacing: 16) {
+                PhotosPicker(selection: $selectedItem, matching: .images) {
+                    ZStack(alignment: .bottomTrailing) {
+                        if let p = pfpBase64, let data = Data(base64Encoded: p), let ui = UIImage(data: data) {
+                            Image(uiImage: ui)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 128, height: 128)
+                                .clipShape(Circle())
+                        } else {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.white.opacity(0.08))
+                                    .frame(width: 128, height: 128)
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.system(size: 60))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Image(systemName: "camera")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(8)
+                            .background(Circle().fill(.black.opacity(0.6)))
+                            .offset(x: 6, y: 6)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                TextField("E-Mail", text: $email)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.emailAddress)
+                    .autocorrectionDisabled(true)
+                    .padding(14)
+                    .lgRect(12)
+
+                SecureField("Passwort", text: $password)
+                    .padding(14)
+                    .lgRect(12)
+
+                TextField("Benutzername", text: $username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .padding(14)
+                    .lgRect(12)
+            }
+
+            if let e = errorText {
+                Text(e)
+                    .font(.callout.weight(.semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .lgCapsule()
+            }
+
+            Button {
+                Task { await createAccount() }
+            } label: {
+                Text("Erstellen")
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+            }
+            .lgButtonStyle()
+            
+            Spacer()
+        }
+        .frame(maxWidth: 400)
+    }
+
+    private func loadPfp(from item: PhotosPickerItem?) async {
+        guard let item else { return }
+        do {
+            if let data = try await item.loadTransferable(type: Data.self) {
+                if let img = UIImage(data: data) {
+                    let jpeg = img.jpegData(compressionQuality: 0.85) ?? data
+                    pfpBase64 = jpeg.base64EncodedString()
+                } else {
+                    pfpBase64 = data.base64EncodedString()
+                }
+            }
+        } catch {
+            pfpBase64 = nil
+        }
+    }
+
+    private func createAccount() async {
+        if isBusy { return }
+        await MainActor.run { isBusy = true; errorText = nil }
+        let rawName = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let available = try await FirestoreManager.shared.isUsernameAvailable(rawName)
+            if available == false {
+                await MainActor.run {
+                    errorText = "Benutzername ist bereits vergeben."
+                    isBusy = false
+                }
+                return
+            }
+        } catch {
+        }
+        do {
+            let user = try await AuthenticationManager.shared.createUser(email: email, password: password)
+            do {
+                try await FirestoreManager.shared.createUserProfileReservingUsername(uid: user.uid, email: user.email, username: rawName, pfpBase64: pfpBase64)
+                await MainActor.run {
+                    isBusy = false
+                    dismiss()
+                }
+            } catch {
+                do { try await Auth.auth().currentUser?.delete() } catch { }
+                await MainActor.run {
+                    if let nserr = error as NSError?, nserr.domain == "username_taken" {
+                        errorText = "Benutzername ist bereits vergeben."
+                    } else {
+                        errorText = "Profil konnte nicht erstellt werden. Versuche es erneut."
+                    }
+                    isBusy = false
+                }
+            }
+        } catch {
+            await MainActor.run {
+                if let e = error as? LocalizedError, let d = e.errorDescription {
+                    errorText = d
+                } else {
+                    errorText = "Registrierung fehlgeschlagen."
+                }
+                isBusy = false
             }
         }
     }
+}
+
+#Preview {
+    CreateAccountView()
 }

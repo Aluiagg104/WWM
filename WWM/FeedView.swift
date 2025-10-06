@@ -88,7 +88,7 @@ struct FeedView: View {
     private func startListeningPosts() {
         stopListeningPosts()
         postsListener = Firestore.firestore()
-            .collection("posts")
+            .collectionGroup("posts")
             .addSnapshotListener(includeMetadataChanges: true) { snap, _ in
                 let docs = snap?.documents ?? []
                 let items: [FeedPost] = docs.compactMap { doc in
@@ -351,10 +351,6 @@ fileprivate extension UIImage {
         guard let data = Data(base64Encoded: body, options: .ignoreUnknownCharacters) else { return nil }
         return UIImage(data: data)
     }
-}
-
-#Preview {
-    FeedView()
 }
 
 #if DEBUG

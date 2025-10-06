@@ -1,14 +1,7 @@
-//
-//  FirestoreManager.swift
-//  WWM
-//
-
 import Foundation
 import UIKit
 import FirebaseAuth
 import FirebaseFirestore
-
-// MARK: - Models
 
 struct AppUser {
     let uid: String
@@ -28,18 +21,13 @@ enum FirestorePostError: Error {
     case notAuthenticated
 }
 
-// MARK: - Manager
-
 final class FirestoreManager {
     static let shared = FirestoreManager()
     private init() {}
-
     fileprivate let db = Firestore.firestore()
     fileprivate var users: CollectionReference { db.collection("users") }
-    fileprivate var posts: CollectionReference { db.collection("posts") }
+    fileprivate func userPosts(_ uid: String) -> CollectionReference { users.document(uid).collection("posts") }
 }
-
-// MARK: - Users
 
 extension FirestoreManager {
     func addUser(uid: String, email: String?, username: String, pfpData: String?) async throws {
@@ -79,8 +67,6 @@ extension FirestoreManager {
         )
     }
 }
-
-// MARK: - Posts Helpers
 
 fileprivate extension FirestoreManager {
     func tinyThumbBase64(from base64: String) -> String? {
@@ -124,8 +110,6 @@ fileprivate extension FirestoreManager {
     }
 }
 
-// MARK: - Posts
-
 extension FirestoreManager {
     func createPost(imageBase64: String,
                     caption: String?,
@@ -147,16 +131,13 @@ extension FirestoreManager {
                                    lng: Double?,
                                    strain: String? = nil) async throws {
         guard let uid = Auth.auth().currentUser?.uid else { throw FirestorePostError.notAuthenticated }
-
         let me = try? await fetchCurrentUser()
         let username = me?.username ?? ""
         let pfpThumb = me?.pfpData.flatMap { tinyThumbBase64(from: $0) } ?? ""
         let previewB64 = previewBase64(from: imageBase64)
-
         let inlineThreshold = 700 * 1024
         let isInlineOK = imageBase64.lengthOfBytes(using: .utf8) <= inlineThreshold
-
-        let postRef = posts.document()
+        let postRef = userPosts(uid).document()
         var meta: [String: Any] = [
             "uid": uid,
             "username": username,
@@ -169,18 +150,14 @@ extension FirestoreManager {
         if let lat, let lng { meta["lat"] = lat; meta["lng"] = lng }
         if let previewB64 { meta["imagePreview"] = previewB64 }
         if let s = strain, !s.isEmpty { meta["strain"] = s }
-
         if isInlineOK {
             meta["imageData"] = imageBase64
             try await postRef.setData(meta)
             return
         }
-
         try await postRef.setData(meta)
-
         let parts = chunkBase64(imageBase64, maxChunkChars: 240_000)
         let chunkCol = postRef.collection("chunks")
-
         var batch = db.batch()
         for (i, part) in parts.enumerated() {
             let cRef = chunkCol.document(String(i))
@@ -194,21 +171,35 @@ extension FirestoreManager {
         try await postRef.setData(["chunkCount": parts.count], merge: true)
     }
 
-    func fetchPostImageBase64(postId: String) async throws -> String? {
-        let postRef = posts.document(postId)
+    func fetchPostImageBase64(authorUid: String, postId: String) async throws -> String? {
+        let postRef = userPosts(authorUid).document(postId)
         let snap = try await postRef.getDocument()
         let d = snap.data() ?? [:]
         if let inline = d["imageData"] as? String { return inline }
-
         let q = postRef.collection("chunks").order(by: "idx", descending: false)
         let chunkSnap = try await q.getDocuments()
         let parts = chunkSnap.documents.compactMap { $0.data()["data"] as? String }
         guard !parts.isEmpty else { return nil }
         return parts.joined()
     }
-}
 
-// MARK: - Chats
+    func deletePost(authorUid: String, postId: String) async throws {
+        let ref = userPosts(authorUid).document(postId)
+        let chunks = try? await ref.collection("chunks").getDocuments()
+        if let docs = chunks?.documents {
+            var batch = db.batch()
+            for (i, d) in docs.enumerated() {
+                batch.deleteDocument(d.reference)
+                if i % 450 == 449 {
+                    try await batch.commit()
+                    batch = db.batch()
+                }
+            }
+            try await batch.commit()
+        }
+        try await ref.delete()
+    }
+}
 
 extension FirestoreManager {
     private var chats: CollectionReference { db.collection("chats") }
@@ -243,14 +234,12 @@ extension FirestoreManager {
         guard let myUid = Auth.auth().currentUser?.uid else { return }
         let cid = chatId(between: myUid, and: otherUid)
         let chatRef = chats.document(cid)
-
         try await chatRef.setData([
             "participants": [myUid, otherUid],
             "updatedAt": FieldValue.serverTimestamp(),
             "lastMessage": text,
             "lastSender": myUid
         ], merge: true)
-
         try await chatRef.collection("messages").document().setData([
             "text": text,
             "senderId": myUid,
@@ -267,8 +256,6 @@ extension FirestoreManager {
         ], merge: true)
     }
 }
-
-// MARK: - Friends
 
 extension FirestoreManager {
     private func friends(of uid: String) -> CollectionReference {
@@ -290,22 +277,15 @@ extension FirestoreManager {
         )
     }
 
-    /// ⚠️ WICHTIG: Gegenrichtung nur **anlegen**, wenn sie fehlt.
-    /// Sonst wäre es ein "update" auf fremdem Pfad und scheitert an den Rules.
     func addFriend(between myUid: String, and otherUid: String) async throws {
         guard myUid != otherUid else { return }
         let now = FieldValue.serverTimestamp()
-
         let aRef = friends(of: myUid).document(otherUid)
         let bRef = friends(of: otherUid).document(myUid)
-
-        // eigene Seite (update/create erlaubt)
         try await aRef.setData(["since": now], merge: true)
-
-        // Gegenstück nur erstellen, falls es noch NICHT existiert
         let bSnap = try await bRef.getDocument()
         if !bSnap.exists {
-            try await bRef.setData(["since": now]) // create (kein merge => wird als create bewertet)
+            try await bRef.setData(["since": now])
         }
     }
 
@@ -340,22 +320,14 @@ extension FirestoreManager {
         return result.sorted { (order[$0.uid] ?? 0) < (order[$1.uid] ?? 0) }
     }
 
-    /// Löscht beide Richtungen. Beide Deletes sind durch die Rules erlaubt.
     func removeFriend(between myUid: String, and otherUid: String) async throws {
         guard myUid != otherUid else { return }
         let aRef = friends(of: myUid).document(otherUid)
         let bRef = friends(of: otherUid).document(myUid)
-
-        // erst eigene Seite hart löschen
         try await aRef.delete()
-
-        // Gegenstück best-effort
-        do { try await bRef.delete() }
-        catch { print("reverse friend doc delete failed:", error.localizedDescription) }
+        do { try await bRef.delete() } catch { }
     }
 }
-
-// MARK: - Username Index (Transaction)
 
 extension FirestoreManager {
     private var usernames: CollectionReference { db.collection("usernames") }
@@ -363,33 +335,26 @@ extension FirestoreManager {
     func updateProfile(newUsername: String?, newPfpBase64: String?) async throws {
         guard let uid = Auth.auth().currentUser?.uid else { throw FirestorePostError.notAuthenticated }
         let userRef = users.document(uid)
-
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             db.runTransaction({ [self] (txn, errorPointer) -> Any? in
                 let userSnap: DocumentSnapshot
                 do { userSnap = try txn.getDocument(userRef) }
                 catch let e as NSError { errorPointer?.pointee = e; return nil }
-
                 let currentData = userSnap.data() ?? [:]
                 let oldUsername = (currentData["username"] as? String) ?? ""
                 var updates: [String: Any] = [:]
-
                 if let base64 = newPfpBase64 {
                     updates["pfpData"] = base64
                     updates["updatedAt"] = FieldValue.serverTimestamp()
                 }
-
                 if let newNameRaw = newUsername?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !newNameRaw.isEmpty, newNameRaw != oldUsername {
-
                     let oldKey = oldUsername.lowercased()
                     let newKey = newNameRaw.lowercased()
-
                     let newRef = self.usernames.document(newKey)
                     let newSnap: DocumentSnapshot
                     do { newSnap = try txn.getDocument(newRef) }
                     catch let e as NSError { errorPointer?.pointee = e; return nil }
-
                     if newSnap.exists {
                         let owner = (newSnap.data()?["uid"] as? String) ?? ""
                         if owner != uid {
@@ -397,19 +362,15 @@ extension FirestoreManager {
                             return nil
                         }
                     }
-
                     if !oldUsername.isEmpty, oldKey != newKey {
                         txn.deleteDocument(self.usernames.document(oldKey))
                     }
-
                     txn.setData(["uid": uid], forDocument: newRef, merge: false)
                     updates["username"] = newNameRaw
                 }
-
                 if !updates.isEmpty {
                     txn.setData(updates, forDocument: userRef, merge: true)
                 }
-
                 return nil
             }, completion: { _, error in
                 if let error { cont.resume(throwing: error) } else { cont.resume(returning: ()) }
@@ -418,21 +379,16 @@ extension FirestoreManager {
     }
 }
 
-// MARK: - Chats "gesehen"
-
 extension FirestoreManager {
     func markChatsSeenNow(graceSeconds: TimeInterval = 2.0) async {
         let ts = Date().addingTimeInterval(graceSeconds).timeIntervalSince1970
         UserDefaults.standard.set(ts, forKey: "chats_last_seen_at")
-
         guard let uid = Auth.auth().currentUser?.uid else { return }
         do {
             try await users.document(uid).setData([
                 "chatSeenAt": FieldValue.serverTimestamp()
             ], merge: true)
-        } catch {
-            print("markChatsSeenNow write failed:", error.localizedDescription)
-        }
+        } catch { }
     }
 
     func localChatsLastSeen() -> Date {
@@ -441,9 +397,7 @@ extension FirestoreManager {
     }
 }
 
-// MARK: - Friend Codes (Kurz-IDs)
-
-private let kFriendCodeAlphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") // ohne 0,O,1,I
+private let kFriendCodeAlphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
 private func randomFriendCode(length: Int = 10) -> String {
     String((0..<length).map { _ in kFriendCodeAlphabet.randomElement()! })
 }
@@ -451,44 +405,36 @@ private func randomFriendCode(length: Int = 10) -> String {
 extension FirestoreManager {
     private var friendcodes: CollectionReference { db.collection("friendcodes") }
 
-    /// Erzeugt einmalig einen Freundes-Code. User-Feld enthält **mit '#'**, Index-Dokument **ohne '#'**.
     @discardableResult
     func ensureFriendCodeExists() async throws -> String {
         guard let uid = Auth.auth().currentUser?.uid else { throw FirestorePostError.notAuthenticated }
         let userRef = users.document(uid)
-
         if let snapshot = try? await userRef.getDocument(),
            let existing = snapshot.get("friendCode") as? String, !existing.isEmpty {
             return existing.hasPrefix("#") ? existing : "#"+existing
         }
-
         for _ in 0..<5 {
             let displayCode = "#"+randomFriendCode()
             let codeId = displayCode
                 .uppercased()
                 .replacingOccurrences(of: "#", with: "")
                 .replacingOccurrences(of: " ", with: "")
-
             let created: String = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
                 db.runTransaction({ [self] txn, errPtr -> Any? in
                     let userSnap: DocumentSnapshot
                     do { userSnap = try txn.getDocument(userRef) }
                     catch let e as NSError { errPtr?.pointee = e; return nil }
-
                     if let already = userSnap.data()?["friendCode"] as? String, !already.isEmpty {
                         return already.hasPrefix("#") ? already : "#"+already
                     }
-
-                    let codeRef = friendcodes.document(codeId) // ⬅️ Index OHNE '#'
+                    let codeRef = friendcodes.document(codeId)
                     let codeSnap: DocumentSnapshot
                     do { codeSnap = try txn.getDocument(codeRef) }
                     catch let e as NSError { errPtr?.pointee = e; return nil }
-
                     if codeSnap.exists {
                         errPtr?.pointee = NSError(domain: "friendcode_conflict", code: 1)
                         return nil
                     }
-
                     txn.setData(["uid": uid, "createdAt": FieldValue.serverTimestamp()], forDocument: codeRef, merge: false)
                     txn.setData(["friendCode": displayCode], forDocument: userRef, merge: true)
                     return displayCode
@@ -498,25 +444,19 @@ extension FirestoreManager {
                     else { cont.resume(throwing: NSError(domain: "unknown", code: -1)) }
                 })
             }
-
             return created
         }
-
-        throw NSError(domain: "friendcode_conflict", code: 2,
-                      userInfo: [NSLocalizedDescriptionKey: "Konnte keinen eindeutigen Code erzeugen."])
+        throw NSError(domain: "friendcode_conflict", code: 2, userInfo: [NSLocalizedDescriptionKey: "Konnte keinen eindeutigen Code erzeugen."])
     }
 
-    /// Holt Nutzer über Kurz-ID (# optional; case-insensitive).
     func fetchUser(byFriendCode raw: String) async throws -> AppUser? {
         let codeId = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "#", with: "")
             .replacingOccurrences(of: " ", with: "")
             .uppercased()
         guard !codeId.isEmpty else { return nil }
-
         let codeSnap = try await friendcodes.document(codeId).getDocument()
         guard let uid = codeSnap.data()?["uid"] as? String else { return nil }
-
         let userSnap = try await users.document(uid).getDocument()
         guard let d = userSnap.data() else { return nil }
         return AppUser(
@@ -535,3 +475,52 @@ extension FirestoreManager {
         try await addFriend(between: myUid, and: user.uid)
     }
 }
+
+extension FirestoreManager {
+    func isUsernameAvailable(_ rawName: String) async throws -> Bool {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name.isEmpty == false else { return false }
+        let key = name.lowercased()
+        let snap = try await Firestore.firestore().collection("usernames").document(key).getDocument()
+        if let owner = snap.data()?["uid"] as? String, !owner.isEmpty {
+            return false
+        } else {
+            return true
+        }
+    }
+
+    func createUserProfileReservingUsername(uid: String, email: String?, username: String, pfpBase64: String?) async throws {
+        let db = Firestore.firestore()
+        let users = db.collection("users")
+        let usernames = db.collection("usernames")
+        let userRef = users.document(uid)
+        let newKey = username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            db.runTransaction({ txn, errPtr -> Any? in
+                let nameRef = usernames.document(newKey)
+                let nameSnap: DocumentSnapshot
+                do { nameSnap = try txn.getDocument(nameRef) } catch let e as NSError { errPtr?.pointee = e; return nil }
+                if nameSnap.exists {
+                    let owner = (nameSnap.data()?["uid"] as? String) ?? ""
+                    if !owner.isEmpty, owner != uid {
+                        errPtr?.pointee = NSError(domain: "username_taken", code: 1)
+                        return nil
+                    }
+                }
+                txn.setData(["uid": uid], forDocument: nameRef, merge: false)
+                var data: [String: Any] = [
+                    "uid": uid,
+                    "email": email ?? "",
+                    "username": username,
+                    "createdAt": FieldValue.serverTimestamp()
+                ]
+                if let p = pfpBase64 { data["pfpData"] = p }
+                txn.setData(data, forDocument: userRef, merge: true)
+                return nil
+            }, completion: { _, err in
+                if let err { cont.resume(throwing: err) } else { cont.resume(returning: ()) }
+            })
+        }
+    }
+}
+

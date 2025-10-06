@@ -1,8 +1,3 @@
-//
-//  PostView.swift
-//  WWM
-//
-
 import SwiftUI
 import Foundation
 import CoreLocation
@@ -21,8 +16,6 @@ final class LocationService: NSObject, ObservableObject {
     @Published var address: String?
     @Published var authorization: CLAuthorizationStatus = .notDetermined
     @Published var errorMessage: String?
-    @Namespace private var glassNS
-    @FocusState private var captionFocused: Bool
 
     override init() {
         super.init()
@@ -60,9 +53,7 @@ extension LocationService: CLLocationManagerDelegate {
             do {
                 let marks = try await geocoder.reverseGeocodeLocation(loc)
                 if let p = marks.first {
-                    let text = [p.name, p.locality, p.postalCode, p.country]
-                        .compactMap { $0 }
-                        .joined(separator: ", ")
+                    let text = [p.name, p.locality, p.postalCode, p.country].compactMap { $0 }.joined(separator: ", ")
                     await MainActor.run { self.address = text }
                 } else {
                     await MainActor.run { self.address = "Adresse unbekannt" }
@@ -91,21 +82,16 @@ struct PostView: View {
     @State private var lastValidSelection: String = ""
     @State private var showAddStrainSheet = false
     @State private var newStrainName: String = ""
-    @FocusState private var captionFocused: Bool            // <- wichtig
+    @FocusState private var captionFocused: Bool
     @Namespace private var glassNS
 
     var body: some View {
         ZStack {
             LightLiquidBackground()
-
             ScrollView {
                 VStack(spacing: 20) {
-
-                    // ——— Card 1: Meta (Sorte + Adresse) + Bild + Caption ———
                     GlassCard {
                         VStack(spacing: 0) {
-
-                            // Kopfzeile: Sorte + Adresse
                             HStack(spacing: 10) {
                                 StrainPickerPill(
                                     strains: $strains,
@@ -121,13 +107,8 @@ struct PostView: View {
                                     .lineLimit(1)
                             }
                             .padding(14)
-
                             Divider().opacity(0.08)
-
-                            // Bild + Caption
                             VStack(spacing: 14) {
-
-                                // Bildbereich
                                 ZStack {
                                     if let img = pickedImage {
                                         let corner: CGFloat = 12
@@ -142,9 +123,7 @@ struct PostView: View {
                                             .padding(.horizontal, 14)
                                     } else {
                                         GlassCard(cornerRadius: 12) {
-                                            PhotosPicker(selection: $selectedItem,
-                                                         matching: .images,
-                                                         photoLibrary: .shared()) {
+                                            PhotosPicker(selection: $selectedItem, matching: .images, photoLibrary: .shared()) {
                                                 VStack(spacing: 10) {
                                                     Image(systemName: "photo.on.rectangle")
                                                         .font(.system(size: 30, weight: .semibold))
@@ -162,36 +141,27 @@ struct PostView: View {
                                         .padding(.horizontal, 14)
                                     }
                                 }
-
-                                // Caption-Feld (echtes Glas + Fallback)
                                 if #available(iOS 26.0, *) {
                                     GlassEffectContainer {
-                                        TextField("Schreibe eine Beschreibung …",
-                                                  text: $caption,
-                                                  axis: .vertical)
+                                        TextField("Schreibe eine Beschreibung …", text: $caption, axis: .vertical)
                                             .padding(.horizontal, 14)
                                             .padding(.vertical, 12)
                                             .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
                                             .foregroundStyle(.primary)
-                                            .focused($captionFocused)          // <- Fokus anbinden
+                                            .focused($captionFocused)
                                             .submitLabel(.done)
                                     }
-                                    .glassEffect(.regular.interactive(),
-                                                 in: .rect(cornerRadius: 12, style: .continuous))
+                                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12, style: .continuous))
                                     .glassEffectID("captionField", in: glassNS)
                                     .padding(.horizontal, 14)
                                 } else {
-                                    TextField("Schreibe eine Beschreibung …",
-                                              text: $caption,
-                                              axis: .vertical)
+                                    TextField("Schreibe eine Beschreibung …", text: $caption, axis: .vertical)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 12)
-                                        .focused($captionFocused)              // <- Fokus anbinden
+                                        .focused($captionFocused)
                                         .submitLabel(.done)
-                                        .background(.ultraThinMaterial.opacity(0.55),
-                                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(.white.opacity(0.28), lineWidth: 0.7))
+                                        .background(.ultraThinMaterial.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.white.opacity(0.28), lineWidth: 0.7))
                                         .padding(.horizontal, 14)
                                 }
                             }
@@ -201,7 +171,6 @@ struct PostView: View {
                     .padding(.horizontal, 22)
                     .padding(.top, 4)
 
-                    // ——— Card 2: Aktionen ———
                     GlassCard {
                         VStack(spacing: 10) {
                             if #available(iOS 26.0, *) {
@@ -211,6 +180,7 @@ struct PostView: View {
                                     Label("Post erstellen", systemImage: "paperplane.fill")
                                         .frame(maxWidth: .infinity)
                                 }
+                                .buttonStyle(.glass)
                                 .disabled(isSaving || pickedImage == nil || selectedStrain.isEmpty)
                             } else {
                                 Button {
@@ -222,11 +192,9 @@ struct PostView: View {
                                 .buttonStyle(.borderedProminent)
                                 .disabled(isSaving || pickedImage == nil || selectedStrain.isEmpty)
                             }
-
                             if isSaving {
                                 ProgressView().progressViewStyle(.circular)
                             }
-
                             if let err = saveError {
                                 Text(err).font(.footnote).foregroundStyle(.red)
                             }
@@ -240,11 +208,10 @@ struct PostView: View {
         }
         .navigationTitle("Neuer Post")
         .toolbar {
-            // erscheint direkt über der Tastatur
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button {
-                    captionFocused = false        // Fokus weg -> Tastatur schließt
+                    captionFocused = false
                 } label: {
                     Label("Fertig", systemImage: "keyboard.chevron.compact.down")
                 }
@@ -260,15 +227,12 @@ struct PostView: View {
                     Text("Neue Sorte hinzufügen")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.primary)
-
                     GlassCard(cornerRadius: 12) {
                         TextField("z. B. Blue Haze", text: $newStrainName)
                             .textInputAutocapitalization(.words)
                             .padding(10)
                     }
-
                     Spacer()
-
                     HStack {
                         Button("Abbrechen") { showAddStrainSheet = false }
                         Spacer()
@@ -305,9 +269,7 @@ struct PostView: View {
     }
 
     private func addNewStrain() {
-        let clean = newStrainName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\n", with: " ")
+        let clean = newStrainName.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
         guard !clean.isEmpty else { return }
         if !strains.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
             strains.insert(clean, at: 0)
@@ -339,26 +301,16 @@ struct PostView: View {
         defer {
             Task { await MainActor.run { isSaving = false } }
         }
-
         guard let base64 = await makeBase64JPEG(from: img, quality: 0.85) else {
             await MainActor.run { saveError = "Bild konnte nicht kodiert werden." }
             return
         }
-
         let lat = loc.lastLocation?.coordinate.latitude
         let lng = loc.lastLocation?.coordinate.longitude
         let address = loc.address
         let strain = selectedStrain
-
         do {
-            try await FirestoreManager.shared.createPost(
-                imageBase64: base64,
-                caption: caption.isEmpty ? nil : caption,
-                address: address,
-                lat: lat,
-                lng: lng,
-                strain: strain
-            )
+            try await FirestoreManager.shared.createPost(imageBase64: base64, caption: caption.isEmpty ? nil : caption, address: address, lat: lat, lng: lng, strain: strain)
             await MainActor.run {
                 caption = ""
                 pickedImage = nil
@@ -408,8 +360,6 @@ struct PostView: View {
     }
 }
 
-// MARK: - Strain Picker Pill (echtes Glas + Fallback)
-
 private struct StrainPickerPill: View {
     @Binding var strains: [String]
     @Binding var selectedStrain: String
@@ -431,8 +381,7 @@ private struct StrainPickerPill: View {
                 GlassEffectContainer {
                     HStack(spacing: 8) {
                         Image(systemName: "leaf.fill").imageScale(.small)
-                        Text(selectedStrain.isEmpty ? "Sorte wählen" : selectedStrain)
-                            .lineLimit(1)
+                        Text(selectedStrain.isEmpty ? "Sorte wählen" : selectedStrain).lineLimit(1)
                     }
                     .font(.caption.weight(.semibold))
                     .padding(.horizontal, 12)
@@ -442,8 +391,7 @@ private struct StrainPickerPill: View {
             } else {
                 HStack(spacing: 8) {
                     Image(systemName: "leaf.fill").imageScale(.small)
-                    Text(selectedStrain.isEmpty ? "Sorte wählen" : selectedStrain)
-                        .lineLimit(1)
+                    Text(selectedStrain.isEmpty ? "Sorte wählen" : selectedStrain).lineLimit(1)
                 }
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 12)
@@ -464,8 +412,6 @@ private struct StrainPickerPill: View {
     }
 }
 
-// MARK: - Reusable Glass Card
-
 private struct GlassCard<Content: View>: View {
     var cornerRadius: CGFloat = 20
     @ViewBuilder var content: () -> Content
@@ -478,28 +424,19 @@ private struct GlassCard<Content: View>: View {
                         content()
                     }
                     .padding(14)
-                    .glassEffect(.regular.interactive(),
-                                 in: .rect(cornerRadius: cornerRadius, style: .continuous))
+                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: cornerRadius, style: .continuous))
                 }
             } else {
                 VStack(spacing: 0) {
                     content()
                 }
                 .padding(14)
-                .background(
-                    .ultraThinMaterial.opacity(0.55),
-                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(.white.opacity(0.28), lineWidth: 0.7)
-                )
+                .background(.ultraThinMaterial.opacity(0.55), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(.white.opacity(0.28), lineWidth: 0.7))
             }
         }
     }
 }
-
-// MARK: - Background
 
 struct LightLiquidBackground: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -508,20 +445,15 @@ struct LightLiquidBackground: View {
         ZStack {
             LinearGradient(
                 colors: colorScheme == .dark
-                    ? [Color(red: 0.09, green: 0.11, blue: 0.12),
-                       Color(red: 0.06, green: 0.08, blue: 0.09)]
+                    ? [Color(red: 0.09, green: 0.11, blue: 0.12), Color(red: 0.06, green: 0.08, blue: 0.09)]
                     : [Color("#F7FFFB"), .white],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
-
-            blob(color: Color("#55A630").opacity(colorScheme == .dark ? 0.18 : 0.12),
-                 size: 420, x: -140, y: -180, blur: 90)
-            blob(color: Color("#EF476F").opacity(colorScheme == .dark ? 0.14 : 0.10),
-                 size: 360, x: 160, y: -120, blur: 110)
-            blob(color: Color.blue.opacity(colorScheme == .dark ? 0.12 : 0.08),
-                 size: 460, x: 80, y: 300, blur: 130)
+            blob(color: Color("#55A630").opacity(colorScheme == .dark ? 0.18 : 0.12), size: 420, x: -140, y: -180, blur: 90)
+            blob(color: Color("#EF476F").opacity(colorScheme == .dark ? 0.14 : 0.10), size: 360, x: 160, y: -120, blur: 110)
+            blob(color: Color.blue.opacity(colorScheme == .dark ? 0.12 : 0.08), size: 460, x: 80, y: 300, blur: 130)
         }
     }
 
@@ -542,10 +474,8 @@ private extension View {
             self
         } else {
             self
-                .background(.ultraThinMaterial.opacity(0.55),
-                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(.white.opacity(0.28), lineWidth: 0.7))
+                .background(.ultraThinMaterial.opacity(0.55), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(.white.opacity(0.28), lineWidth: 0.7))
         }
     }
 }

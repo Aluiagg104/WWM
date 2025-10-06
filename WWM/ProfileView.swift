@@ -71,21 +71,9 @@ struct ProfileView: View {
 
                     // Kachel-Abschnitt
                     VStack(spacing: 12) {
-                        // Freunde
-                        NavigationLink(isActive: $pushFriends) {
-                            FriendsView(ShowFriendsView: $pushFriends)
-                        } label: {
-                            GlassRowTile(
-                                icon: "person.2.fill",
-                                title: "Freunde",
-                                trailing: { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
-                            )
-                        }
-                        .buttonStyle(.plain)
-
                         // Beiträge
-                        NavigationLink(isActive: $pushYourPosts) {
-                            YourPostsView(ShowYourPostsView: $pushYourPosts)
+                        NavigationLink {
+                            YourPostsView()
                         } label: {
                             GlassRowTile(
                                 icon: "photo",
